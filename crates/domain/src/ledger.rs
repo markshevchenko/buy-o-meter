@@ -66,7 +66,7 @@ impl Ledger {
     }
 
     pub fn create_category(&mut self, input: CreateCategory) -> Result<CategoryId, DomainError> {
-        let input = self.inherit_applicability(input)?;
+        let input = self.prepare_category(input)?;
         let id = CategoryId::from_u64(self.next_category_id);
         let category = Category::new(id, input)?;
         self.next_category_id += 1;
@@ -132,20 +132,19 @@ impl Ledger {
         Ok(())
     }
 
-    fn inherit_applicability(
-        &self,
-        mut input: CreateCategory,
-    ) -> Result<CreateCategory, DomainError> {
-        if input.applicability.is_some() {
-            return Ok(input);
-        }
+    fn prepare_category(&self, mut input: CreateCategory) -> Result<CreateCategory, DomainError> {
         let Some(parent_id) = input.parent_id else {
             return Ok(input);
         };
         let parent = self
             .find_category(parent_id)
             .ok_or(DomainError::CategoryNotFound)?;
-        input.applicability = Some(parent.applicability());
+        if parent.parent_id().is_some() {
+            return Err(DomainError::CategoryTooDeep);
+        }
+        if input.applicability.is_none() {
+            input.applicability = Some(parent.applicability());
+        }
         Ok(input)
     }
 
@@ -314,6 +313,33 @@ mod tests {
             amount: 1,
         });
         assert_eq!(err, Err(DomainError::AccountRequired));
+    }
+
+    #[test]
+    fn subcategory_of_subcategory_is_rejected() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let groceries = ledger.create_category(CreateCategory {
+            name: "Продукты".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+
+        let before = ledger.categories().to_vec();
+        let err = ledger.create_category(CreateCategory {
+            name: "Молоко".into(),
+            parent_id: Some(groceries),
+            applicability: None,
+        });
+        assert_eq!(err, Err(DomainError::CategoryTooDeep));
+        assert_eq!(ledger.categories(), before.as_slice());
+        Ok(())
     }
 
     #[test]

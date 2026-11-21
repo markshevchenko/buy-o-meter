@@ -69,6 +69,15 @@ impl Category {
     pub fn parent_id(&self) -> Option<CategoryId> {
         self.parent_id
     }
+
+    pub(crate) fn update(&mut self, input: UpdateCategory) {
+        if let Some(name) = input.name {
+            self.name = name;
+        }
+        if let Some(applicability) = input.applicability {
+            self.applicability = applicability;
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

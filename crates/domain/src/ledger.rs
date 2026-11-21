@@ -88,8 +88,10 @@ impl Ledger {
         id: CategoryId,
         input: UpdateCategory,
     ) -> Result<(), DomainError> {
-        let _ = (id, input);
-        todo!()
+        self.find_category_mut(id)
+            .ok_or(DomainError::CategoryNotFound)?
+            .update(input);
+        Ok(())
     }
 
     pub fn move_category(
@@ -150,6 +152,12 @@ impl Ledger {
 
     fn find_category(&self, id: CategoryId) -> Option<&Category> {
         self.categories.iter().find(|category| category.id() == id)
+    }
+
+    fn find_category_mut(&mut self, id: CategoryId) -> Option<&mut Category> {
+        self.categories
+            .iter_mut()
+            .find(|category| category.id() == id)
     }
 
     fn find_account(&self, id: AccountId) -> Option<&Account> {
@@ -313,6 +321,40 @@ mod tests {
             amount: 1,
         });
         assert_eq!(err, Err(DomainError::AccountRequired));
+    }
+
+    #[test]
+    fn update_category_changes_only_provided_fields() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let id = ledger.create_category(CreateCategory {
+            name: "Кафе".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+
+        ledger.update_category(
+            id,
+            UpdateCategory {
+                name: Some("Кофейни".into()),
+                applicability: None,
+            },
+        )?;
+        assert_eq!(ledger.category(id)?.name(), "Кофейни");
+        assert_eq!(ledger.category(id)?.applicability(), Applicability::Expense);
+
+        ledger.update_category(
+            id,
+            UpdateCategory {
+                name: None,
+                applicability: Some(Applicability::Both),
+            },
+        )?;
+        assert_eq!(ledger.category(id)?.name(), "Кофейни");
+        assert_eq!(ledger.category(id)?.applicability(), Applicability::Both);
+        assert_eq!(ledger.category(id)?.parent_id(), None);
+        Ok(())
     }
 
     #[test]

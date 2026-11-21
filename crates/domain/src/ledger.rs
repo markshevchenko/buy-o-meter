@@ -101,8 +101,10 @@ impl Ledger {
         id: CategoryId,
         new_parent_id: CategoryId,
     ) -> Result<(), DomainError> {
-        let _ = (id, new_parent_id);
-        todo!()
+        self.find_category_mut(id)
+            .ok_or(DomainError::CategoryNotFound)?
+            .set_parent(new_parent_id);
+        Ok(())
     }
 
     pub fn add_category_amount(&mut self, amount: CategoryAmount) -> Result<(), DomainError> {
@@ -340,6 +342,49 @@ mod tests {
             amount: 1,
         });
         assert_eq!(err, Err(DomainError::AccountRequired));
+    }
+
+    #[test]
+    fn moving_category_counts_its_amounts_under_the_new_parent() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let lunches = ledger.create_category(CreateCategory {
+            name: "Обеды в городе".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+        let leisure = ledger.create_category(CreateCategory {
+            name: "Досуг".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        ledger.add_category_amount(CategoryAmount {
+            category_id: lunches,
+            kind: EntryKind::Expense,
+            amount: 1_500,
+        })?;
+
+        ledger.move_category(lunches, leisure)?;
+
+        assert_eq!(ledger.category(lunches)?.parent_id(), Some(leisure));
+        assert_eq!(ledger.category_total(lunches, EntryKind::Expense)?, 1_500);
+        assert_eq!(ledger.category_total(leisure, EntryKind::Expense)?, 1_500);
+        assert_eq!(ledger.category_total(food, EntryKind::Expense)?, 0);
+        assert_eq!(
+            ledger.category_amounts(),
+            &[CategoryAmount {
+                category_id: lunches,
+                kind: EntryKind::Expense,
+                amount: 1_500,
+            }]
+        );
+        Ok(())
     }
 
     #[test]

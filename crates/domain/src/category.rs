@@ -78,6 +78,10 @@ impl Category {
             self.applicability = applicability;
         }
     }
+
+    pub(crate) fn set_parent(&mut self, parent_id: CategoryId) {
+        self.parent_id = Some(parent_id);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

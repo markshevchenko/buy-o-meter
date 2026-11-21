@@ -169,7 +169,7 @@ impl Ledger {
         let new_parent = self
             .find_category(new_parent_id)
             .ok_or(DomainError::CategoryNotFound)?;
-        if new_parent.parent_id().is_some() || self.has_subcategories(id) {
+        if id == new_parent_id || new_parent.parent_id().is_some() || self.has_subcategories(id) {
             return Err(DomainError::CategoryTooDeep);
         }
         Ok(())
@@ -414,6 +414,16 @@ mod tests {
         let err = ledger.move_category(taxi, groceries);
         assert_eq!(err, Err(DomainError::CategoryTooDeep));
         assert_eq!(ledger.category(taxi)?.parent_id(), None);
+
+        ledger.add_category_amount(CategoryAmount {
+            category_id: taxi,
+            kind: EntryKind::Expense,
+            amount: 100,
+        })?;
+        let err = ledger.move_category(taxi, taxi);
+        assert_eq!(err, Err(DomainError::CategoryTooDeep));
+        assert_eq!(ledger.category(taxi)?.parent_id(), None);
+        assert_eq!(ledger.category_total(taxi, EntryKind::Expense)?, 100);
         Ok(())
     }
 

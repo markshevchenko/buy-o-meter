@@ -117,8 +117,9 @@ impl Ledger {
 
     /// Свои суммы этого вида плюс суммы всех подкатегорий.
     pub fn category_total(&self, id: CategoryId, kind: EntryKind) -> Result<i64, DomainError> {
-        let _ = (id, kind);
-        todo!()
+        self.find_category(id)
+            .ok_or(DomainError::CategoryNotFound)?;
+        Ok(self.amount_of(id, kind) + self.direct_children_amount(id, kind))
     }
 
     /// Категории, которые можно выбрать при вводе операции этого вида.
@@ -150,6 +151,22 @@ impl Ledger {
             input.applicability = Some(parent.applicability());
         }
         Ok(input)
+    }
+
+    fn amount_of(&self, id: CategoryId, kind: EntryKind) -> i64 {
+        self.category_amounts
+            .iter()
+            .filter(|amount| amount.category_id == id && amount.kind == kind)
+            .map(|amount| amount.amount)
+            .sum()
+    }
+
+    fn direct_children_amount(&self, id: CategoryId, kind: EntryKind) -> i64 {
+        self.categories
+            .iter()
+            .filter(|category| category.parent_id() == Some(id))
+            .map(|category| self.amount_of(category.id(), kind))
+            .sum()
     }
 
     fn find_category(&self, id: CategoryId) -> Option<&Category> {
@@ -323,6 +340,44 @@ mod tests {
             amount: 1,
         });
         assert_eq!(err, Err(DomainError::AccountRequired));
+    }
+
+    #[test]
+    fn category_total_adds_own_amounts_and_direct_children() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Both),
+        })?;
+        let lunches = ledger.create_category(CreateCategory {
+            name: "Обеды".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+        ledger.add_category_amount(CategoryAmount {
+            category_id: food,
+            kind: EntryKind::Expense,
+            amount: 400,
+        })?;
+        ledger.add_category_amount(CategoryAmount {
+            category_id: lunches,
+            kind: EntryKind::Expense,
+            amount: 1_500,
+        })?;
+        ledger.add_category_amount(CategoryAmount {
+            category_id: lunches,
+            kind: EntryKind::Income,
+            amount: 50,
+        })?;
+
+        assert_eq!(ledger.category_total(food, EntryKind::Expense)?, 1_900);
+        assert_eq!(ledger.category_total(lunches, EntryKind::Expense)?, 1_500);
+        assert_eq!(ledger.category_total(food, EntryKind::Income)?, 50);
+        assert_eq!(ledger.category_total(lunches, EntryKind::Income)?, 50);
+        Ok(())
     }
 
     #[test]

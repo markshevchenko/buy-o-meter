@@ -22,12 +22,7 @@ impl Ledger {
     pub fn create_account(&mut self, input: CreateAccount) -> Result<AccountId, DomainError> {
         let id = AccountId::from_u64(self.next_account_id);
         self.next_account_id += 1;
-        self.accounts.push(Account::new(
-            id,
-            input.name,
-            input.currency,
-            input.opening_balance,
-        ));
+        self.accounts.push(Account::new(id, input));
         Ok(id)
     }
 
@@ -57,18 +52,9 @@ impl Ledger {
         if let Some(currency) = &input.currency {
             self.ensure_currency_change_allowed(id, currency)?;
         }
-        let account = self
-            .find_account_mut(id)
-            .ok_or(DomainError::AccountNotFound)?;
-        if let Some(name) = input.name {
-            account.set_name(name);
-        }
-        if let Some(opening_balance) = input.opening_balance {
-            account.set_opening_balance(opening_balance);
-        }
-        if let Some(currency) = input.currency {
-            account.set_currency(currency);
-        }
+        self.find_account_mut(id)
+            .ok_or(DomainError::AccountNotFound)?
+            .update(input);
         Ok(())
     }
 

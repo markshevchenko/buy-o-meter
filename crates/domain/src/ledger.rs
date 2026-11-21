@@ -66,6 +66,7 @@ impl Ledger {
     }
 
     pub fn create_category(&mut self, input: CreateCategory) -> Result<CategoryId, DomainError> {
+        let input = self.inherit_applicability(input)?;
         let id = CategoryId::from_u64(self.next_category_id);
         let category = Category::new(id, input)?;
         self.next_category_id += 1;
@@ -129,6 +130,23 @@ impl Ledger {
         }
         self.operations.push(draft);
         Ok(())
+    }
+
+    fn inherit_applicability(
+        &self,
+        mut input: CreateCategory,
+    ) -> Result<CreateCategory, DomainError> {
+        if input.applicability.is_some() {
+            return Ok(input);
+        }
+        let Some(parent_id) = input.parent_id else {
+            return Ok(input);
+        };
+        let parent = self
+            .find_category(parent_id)
+            .ok_or(DomainError::CategoryNotFound)?;
+        input.applicability = Some(parent.applicability());
+        Ok(input)
     }
 
     fn find_category(&self, id: CategoryId) -> Option<&Category> {
@@ -296,6 +314,40 @@ mod tests {
             amount: 1,
         });
         assert_eq!(err, Err(DomainError::AccountRequired));
+    }
+
+    #[test]
+    fn subcategory_inherits_parent_applicability_unless_overridden() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+
+        let groceries = ledger.create_category(CreateCategory {
+            name: "Продукты".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+        assert_eq!(ledger.category(groceries)?.parent_id(), Some(food));
+        assert_eq!(
+            ledger.category(groceries)?.applicability(),
+            Applicability::Expense
+        );
+
+        let cafes = ledger.create_category(CreateCategory {
+            name: "Кафе".into(),
+            parent_id: Some(food),
+            applicability: Some(Applicability::Income),
+        })?;
+        assert_eq!(
+            ledger.category(cafes)?.applicability(),
+            Applicability::Income
+        );
+        Ok(())
     }
 
     #[test]

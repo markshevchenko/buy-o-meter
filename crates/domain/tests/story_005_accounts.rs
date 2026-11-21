@@ -24,10 +24,10 @@ fn creating_account_adds_it_with_balance_equal_to_opening() -> Result<(), Domain
 
     let accounts = ledger.accounts();
     assert_eq!(accounts.len(), 1);
-    assert_eq!(accounts[0].id, id);
-    assert_eq!(accounts[0].name, "Наличные");
-    assert_eq!(accounts[0].currency, Currency::new("RUB"));
-    assert_eq!(accounts[0].opening_balance, 10_000);
+    assert_eq!(accounts[0].id(), id);
+    assert_eq!(accounts[0].name(), "Наличные");
+    assert_eq!(accounts[0].currency(), &Currency::new("RUB"));
+    assert_eq!(accounts[0].opening_balance(), 10_000);
     assert_eq!(ledger.balance(id)?, 10_000);
     Ok(())
 }
@@ -40,10 +40,13 @@ fn balances_stay_in_account_currency_and_are_not_combined() -> Result<(), Domain
     let usd = create_account(&mut ledger, "Dollar cash", "USD", 100)?;
 
     assert_eq!(ledger.balance(rub)?, 10_000);
-    assert_eq!(ledger.account(rub)?.currency, Currency::new("RUB"));
+    assert_eq!(ledger.account(rub)?.currency(), &Currency::new("RUB"));
     assert_eq!(ledger.balance(usd)?, 100);
-    assert_eq!(ledger.account(usd)?.currency, Currency::new("USD"));
-    assert_ne!(ledger.account(rub)?.currency, ledger.account(usd)?.currency);
+    assert_eq!(ledger.account(usd)?.currency(), &Currency::new("USD"));
+    assert_ne!(
+        ledger.account(rub)?.currency(),
+        ledger.account(usd)?.currency()
+    );
     Ok(())
 }
 
@@ -54,7 +57,7 @@ fn account_has_no_type_field_type_is_reflected_in_name() -> Result<(), DomainErr
     let id = create_account(&mut ledger, "Карта Сбер", "RUB", 0)?;
 
     let account = ledger.account(id)?;
-    assert_eq!(account.name, "Карта Сбер");
+    assert_eq!(account.name(), "Карта Сбер");
     // CreateAccount / Account содержат только name, currency, opening_balance — без поля типа.
     let _ = CreateAccount {
         name: "Вклад".into(),
@@ -130,8 +133,8 @@ fn updating_name_or_opening_balance_persists_and_recalculates_balance() -> Resul
     )?;
 
     let account = ledger.account(id)?;
-    assert_eq!(account.name, "Карта Сбер");
-    assert_eq!(account.opening_balance, 20_000);
+    assert_eq!(account.name(), "Карта Сбер");
+    assert_eq!(account.opening_balance(), 20_000);
     assert_eq!(ledger.balance(id)?, 19_000);
     Ok(())
 }
@@ -150,7 +153,7 @@ fn currency_cannot_change_after_operations_but_can_before() -> Result<(), Domain
             currency: Some(Currency::new("USD")),
         },
     )?;
-    assert_eq!(ledger.account(id)?.currency, Currency::new("USD"));
+    assert_eq!(ledger.account(id)?.currency(), &Currency::new("USD"));
 
     ledger.add_operation(OperationDraft::Income {
         account_id: id,
@@ -166,7 +169,7 @@ fn currency_cannot_change_after_operations_but_can_before() -> Result<(), Domain
         },
     );
     assert_eq!(err, Err(DomainError::CurrencyChangeNotAllowed));
-    assert_eq!(ledger.account(id)?.currency, Currency::new("USD"));
+    assert_eq!(ledger.account(id)?.currency(), &Currency::new("USD"));
     Ok(())
 }
 

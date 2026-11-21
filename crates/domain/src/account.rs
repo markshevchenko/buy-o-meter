@@ -1,6 +1,5 @@
 use crate::currency::Currency;
 
-/// Идентификатор счёта.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AccountId(u64);
 
@@ -16,16 +15,62 @@ impl AccountId {
     }
 }
 
-/// Счёт: место, где лежат деньги. Типа счёта отдельным полем нет — он в названии.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Account {
-    pub id: AccountId,
-    pub name: String,
-    pub currency: Currency,
-    pub opening_balance: i64,
+    id: AccountId,
+    name: String,
+    currency: Currency,
+    opening_balance: i64,
 }
 
-/// Данные для создания счёта.
+impl Account {
+    pub(crate) fn new(
+        id: AccountId,
+        name: String,
+        currency: Currency,
+        opening_balance: i64,
+    ) -> Self {
+        Self {
+            id,
+            name,
+            currency,
+            opening_balance,
+        }
+    }
+
+    #[must_use]
+    pub fn id(&self) -> AccountId {
+        self.id
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub fn currency(&self) -> &Currency {
+        &self.currency
+    }
+
+    #[must_use]
+    pub fn opening_balance(&self) -> i64 {
+        self.opening_balance
+    }
+
+    pub(crate) fn set_name(&mut self, name: String) {
+        self.name = name;
+    }
+
+    pub(crate) fn set_opening_balance(&mut self, opening_balance: i64) {
+        self.opening_balance = opening_balance;
+    }
+
+    pub(crate) fn set_currency(&mut self, currency: Currency) {
+        self.currency = currency;
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateAccount {
     pub name: String,
@@ -33,8 +78,6 @@ pub struct CreateAccount {
     pub opening_balance: i64,
 }
 
-/// Данные для изменения счёта. `None` — поле не менять.
-/// Валюту можно менять, только если по счёту ещё нет операций.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpdateAccount {
     pub name: Option<String>,

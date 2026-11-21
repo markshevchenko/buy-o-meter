@@ -1,5 +1,3 @@
-/// Код валюты счёта (например, `RUB`, `USD`).
-/// Суммы в разных валютах не складываются и не сравниваются.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Currency(String);
 

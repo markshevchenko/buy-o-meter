@@ -2,7 +2,6 @@ use crate::account::{Account, AccountId, CreateAccount, UpdateAccount};
 use crate::error::DomainError;
 use crate::operation::{OperationDraft, RepaymentDirection};
 
-/// Книга учёта: счета и операции. Хранится в памяти; персистентность — за трейтами позже.
 #[derive(Debug)]
 pub struct Ledger {
     next_account_id: u64,
@@ -20,34 +19,30 @@ impl Ledger {
         }
     }
 
-    /// Создаёт счёт. Отдельного поля «тип» нет — тип отражается в `name`.
     pub fn create_account(&mut self, input: CreateAccount) -> Result<AccountId, DomainError> {
         let id = AccountId::from_u64(self.next_account_id);
         self.next_account_id += 1;
-        self.accounts.push(Account {
+        self.accounts.push(Account::new(
             id,
-            name: input.name,
-            currency: input.currency,
-            opening_balance: input.opening_balance,
-        });
+            input.name,
+            input.currency,
+            input.opening_balance,
+        ));
         Ok(id)
     }
 
     #[must_use]
-    pub fn accounts(&self) -> Vec<Account> {
-        self.accounts.clone()
+    pub fn accounts(&self) -> &[Account] {
+        &self.accounts
     }
 
-    pub fn account(&self, id: AccountId) -> Result<Account, DomainError> {
-        self.find_account(id)
-            .cloned()
-            .ok_or(DomainError::AccountNotFound)
+    pub fn account(&self, id: AccountId) -> Result<&Account, DomainError> {
+        self.find_account(id).ok_or(DomainError::AccountNotFound)
     }
 
-    /// Текущий остаток счёта в его валюте: начальный остаток ± операции по этому счёту.
     pub fn balance(&self, id: AccountId) -> Result<i64, DomainError> {
         let account = self.find_account(id).ok_or(DomainError::AccountNotFound)?;
-        let mut total = account.opening_balance;
+        let mut total = account.opening_balance();
         for operation in &self.operations {
             total += balance_effect(id, operation);
         }
@@ -66,18 +61,17 @@ impl Ledger {
             .find_account_mut(id)
             .ok_or(DomainError::AccountNotFound)?;
         if let Some(name) = input.name {
-            account.name = name;
+            account.set_name(name);
         }
         if let Some(opening_balance) = input.opening_balance {
-            account.opening_balance = opening_balance;
+            account.set_opening_balance(opening_balance);
         }
         if let Some(currency) = input.currency {
-            account.currency = currency;
+            account.set_currency(currency);
         }
         Ok(())
     }
 
-    /// Добавляет операцию. Если счетов нет — [`DomainError::AccountRequired`].
     pub fn add_operation(&mut self, draft: OperationDraft) -> Result<(), DomainError> {
         if self.accounts.is_empty() {
             return Err(DomainError::AccountRequired);
@@ -87,11 +81,11 @@ impl Ledger {
     }
 
     fn find_account(&self, id: AccountId) -> Option<&Account> {
-        self.accounts.iter().find(|account| account.id == id)
+        self.accounts.iter().find(|account| account.id() == id)
     }
 
     fn find_account_mut(&mut self, id: AccountId) -> Option<&mut Account> {
-        self.accounts.iter_mut().find(|account| account.id == id)
+        self.accounts.iter_mut().find(|account| account.id() == id)
     }
 
     fn ensure_currency_change_allowed(
@@ -100,7 +94,7 @@ impl Ledger {
         new_currency: &crate::currency::Currency,
     ) -> Result<(), DomainError> {
         let account = self.find_account(id).ok_or(DomainError::AccountNotFound)?;
-        if &account.currency == new_currency {
+        if account.currency() == new_currency {
             return Ok(());
         }
         if self.account_has_operations(id) {
@@ -218,7 +212,7 @@ mod tests {
             opening_balance: 100,
         })?;
         let account = ledger.account(id)?;
-        assert_eq!(account.opening_balance, 100);
+        assert_eq!(account.opening_balance(), 100);
         assert_eq!(ledger.balance(id)?, 100);
         Ok(())
     }

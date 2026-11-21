@@ -1,3 +1,5 @@
+use crate::error::DomainError;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CategoryId(u64);
 
@@ -36,6 +38,18 @@ pub struct Category {
 }
 
 impl Category {
+    pub(crate) fn new(id: CategoryId, input: CreateCategory) -> Result<Self, DomainError> {
+        let Some(applicability) = input.applicability else {
+            return Err(DomainError::ApplicabilityRequired);
+        };
+        Ok(Self {
+            id,
+            name: input.name,
+            applicability,
+            parent_id: input.parent_id,
+        })
+    }
+
     #[must_use]
     pub fn id(&self) -> CategoryId {
         self.id

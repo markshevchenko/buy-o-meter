@@ -10,6 +10,8 @@ pub struct Ledger {
     next_account_id: u64,
     accounts: Vec<Account>,
     operations: Vec<OperationDraft>,
+    next_category_id: u64,
+    categories: Vec<Category>,
 }
 
 impl Ledger {
@@ -19,6 +21,8 @@ impl Ledger {
             next_account_id: 1,
             accounts: Vec::new(),
             operations: Vec::new(),
+            next_category_id: 1,
+            categories: Vec::new(),
         }
     }
 
@@ -62,18 +66,20 @@ impl Ledger {
     }
 
     pub fn create_category(&mut self, input: CreateCategory) -> Result<CategoryId, DomainError> {
-        let _ = input;
-        todo!()
+        let id = CategoryId::from_u64(self.next_category_id);
+        let category = Category::new(id, input)?;
+        self.next_category_id += 1;
+        self.categories.push(category);
+        Ok(id)
     }
 
     #[must_use]
     pub fn categories(&self) -> &[Category] {
-        todo!()
+        &self.categories
     }
 
     pub fn category(&self, id: CategoryId) -> Result<&Category, DomainError> {
-        let _ = id;
-        todo!()
+        self.find_category(id).ok_or(DomainError::CategoryNotFound)
     }
 
     pub fn update_category(
@@ -123,6 +129,10 @@ impl Ledger {
         }
         self.operations.push(draft);
         Ok(())
+    }
+
+    fn find_category(&self, id: CategoryId) -> Option<&Category> {
+        self.categories.iter().find(|category| category.id() == id)
     }
 
     fn find_account(&self, id: AccountId) -> Option<&Account> {
@@ -286,6 +296,25 @@ mod tests {
             amount: 1,
         });
         assert_eq!(err, Err(DomainError::AccountRequired));
+    }
+
+    #[test]
+    fn create_top_level_category_stores_name_and_applicability() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let id = ledger.create_category(CreateCategory {
+            name: "Транспорт".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+
+        assert_eq!(ledger.categories().len(), 1);
+        assert_eq!(ledger.category(id)?.id(), id);
+        assert_eq!(ledger.category(id)?.name(), "Транспорт");
+        assert_eq!(ledger.category(id)?.applicability(), Applicability::Expense);
+        assert_eq!(ledger.category(id)?.parent_id(), None);
+        Ok(())
     }
 
     #[test]

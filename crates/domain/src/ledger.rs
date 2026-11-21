@@ -101,6 +101,7 @@ impl Ledger {
         id: CategoryId,
         new_parent_id: CategoryId,
     ) -> Result<(), DomainError> {
+        self.ensure_move_keeps_two_levels(id, new_parent_id)?;
         self.find_category_mut(id)
             .ok_or(DomainError::CategoryNotFound)?
             .set_parent(new_parent_id);
@@ -155,6 +156,29 @@ impl Ledger {
             input.applicability = Some(parent.applicability());
         }
         Ok(input)
+    }
+
+    fn ensure_move_keeps_two_levels(
+        &self,
+        id: CategoryId,
+        new_parent_id: CategoryId,
+    ) -> Result<(), DomainError> {
+        if self.find_category(id).is_none() {
+            return Err(DomainError::CategoryNotFound);
+        }
+        let new_parent = self
+            .find_category(new_parent_id)
+            .ok_or(DomainError::CategoryNotFound)?;
+        if new_parent.parent_id().is_some() || self.has_subcategories(id) {
+            return Err(DomainError::CategoryTooDeep);
+        }
+        Ok(())
+    }
+
+    fn has_subcategories(&self, id: CategoryId) -> bool {
+        self.categories
+            .iter()
+            .any(|category| category.parent_id() == Some(id))
     }
 
     fn amount_of(&self, id: CategoryId, kind: EntryKind) -> i64 {
@@ -353,6 +377,44 @@ mod tests {
             amount: 1,
         });
         assert_eq!(err, Err(DomainError::AccountRequired));
+    }
+
+    #[test]
+    fn move_that_would_exceed_two_levels_is_rejected() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let groceries = ledger.create_category(CreateCategory {
+            name: "Продукты".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+        let leisure = ledger.create_category(CreateCategory {
+            name: "Досуг".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let before = ledger.categories().to_vec();
+
+        let err = ledger.move_category(food, leisure);
+        assert_eq!(err, Err(DomainError::CategoryTooDeep));
+        assert_eq!(ledger.categories(), before.as_slice());
+        assert_eq!(ledger.category(groceries)?.parent_id(), Some(food));
+
+        let taxi = ledger.create_category(CreateCategory {
+            name: "Такси".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let err = ledger.move_category(taxi, groceries);
+        assert_eq!(err, Err(DomainError::CategoryTooDeep));
+        assert_eq!(ledger.category(taxi)?.parent_id(), None);
+        Ok(())
     }
 
     #[test]

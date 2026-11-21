@@ -1,4 +1,7 @@
 use crate::account::{Account, AccountId, CreateAccount, UpdateAccount};
+use crate::category::{
+    Category, CategoryAmount, CategoryId, CreateCategory, EntryKind, UpdateCategory,
+};
 use crate::error::DomainError;
 use crate::operation::{OperationDraft, RepaymentDirection};
 
@@ -56,6 +59,62 @@ impl Ledger {
             .ok_or(DomainError::AccountNotFound)?
             .update(input);
         Ok(())
+    }
+
+    pub fn create_category(&mut self, input: CreateCategory) -> Result<CategoryId, DomainError> {
+        let _ = input;
+        todo!()
+    }
+
+    #[must_use]
+    pub fn categories(&self) -> &[Category] {
+        todo!()
+    }
+
+    pub fn category(&self, id: CategoryId) -> Result<&Category, DomainError> {
+        let _ = id;
+        todo!()
+    }
+
+    pub fn update_category(
+        &mut self,
+        id: CategoryId,
+        input: UpdateCategory,
+    ) -> Result<(), DomainError> {
+        let _ = (id, input);
+        todo!()
+    }
+
+    pub fn move_category(
+        &mut self,
+        id: CategoryId,
+        new_parent_id: CategoryId,
+    ) -> Result<(), DomainError> {
+        let _ = (id, new_parent_id);
+        todo!()
+    }
+
+    pub fn add_category_amount(&mut self, amount: CategoryAmount) -> Result<(), DomainError> {
+        let _ = amount;
+        todo!()
+    }
+
+    #[must_use]
+    pub fn category_amounts(&self) -> &[CategoryAmount] {
+        todo!()
+    }
+
+    /// Свои суммы этого вида плюс суммы всех подкатегорий.
+    pub fn category_total(&self, id: CategoryId, kind: EntryKind) -> Result<i64, DomainError> {
+        let _ = (id, kind);
+        todo!()
+    }
+
+    /// Категории, которые можно выбрать при вводе операции этого вида.
+    #[must_use]
+    pub fn categories_for(&self, kind: EntryKind) -> Vec<&Category> {
+        let _ = kind;
+        todo!()
     }
 
     pub fn add_operation(&mut self, draft: OperationDraft) -> Result<(), DomainError> {

@@ -3,4 +3,7 @@ pub enum DomainError {
     AccountNotFound,
     CurrencyChangeNotAllowed,
     AccountRequired,
+    CategoryNotFound,
+    ApplicabilityRequired,
+    CategoryTooDeep,
 }

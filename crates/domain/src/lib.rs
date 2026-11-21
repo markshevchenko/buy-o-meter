@@ -2,12 +2,16 @@
 //! Не зависит от браузера, WASM и Google Drive.
 
 mod account;
+mod category;
 mod currency;
 mod error;
 mod ledger;
 mod operation;
 
 pub use account::{Account, AccountId, CreateAccount, UpdateAccount};
+pub use category::{
+    Applicability, Category, CategoryAmount, CategoryId, CreateCategory, EntryKind, UpdateCategory,
+};
 pub use currency::Currency;
 pub use error::DomainError;
 pub use ledger::Ledger;

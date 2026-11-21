@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+members = ["crates/domain", "crates/web"]
+
+[workspace.package]
+edition = "2024"
+license = "Unlicense"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+cognitive_complexity = "deny"
+too_many_lines = "deny"
+unwrap_used = "deny"
+expect_used = "deny"

@@ -2,7 +2,6 @@
 name: reviewer
 description: Ревью изменений ветки относительно main по правилам docs/REVIEW.md. Использовать на шаге 6 цикла задачи из AGENTS.md, когда scripts/check.sh проходит.
 model: claude-opus-5-5
-readonly: true
 tools: Read, Grep, Glob, Bash
 ---
 

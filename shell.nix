@@ -2,8 +2,7 @@
 pkgs.mkShell {
     nativeBuildInputs = with pkgs.buildPackages; [
         rustup
-        wasm-pack
-        sfz
+        trunk
         gh
     ];
 }

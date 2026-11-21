@@ -24,17 +24,12 @@ pub struct Account {
 }
 
 impl Account {
-    pub(crate) fn new(
-        id: AccountId,
-        name: String,
-        currency: Currency,
-        opening_balance: i64,
-    ) -> Self {
+    pub(crate) fn new(id: AccountId, input: CreateAccount) -> Self {
         Self {
             id,
-            name,
-            currency,
-            opening_balance,
+            name: input.name,
+            currency: input.currency,
+            opening_balance: input.opening_balance,
         }
     }
 
@@ -58,16 +53,16 @@ impl Account {
         self.opening_balance
     }
 
-    pub(crate) fn set_name(&mut self, name: String) {
-        self.name = name;
-    }
-
-    pub(crate) fn set_opening_balance(&mut self, opening_balance: i64) {
-        self.opening_balance = opening_balance;
-    }
-
-    pub(crate) fn set_currency(&mut self, currency: Currency) {
-        self.currency = currency;
+    pub(crate) fn update(&mut self, input: UpdateAccount) {
+        if let Some(name) = input.name {
+            self.name = name;
+        }
+        if let Some(opening_balance) = input.opening_balance {
+            self.opening_balance = opening_balance;
+        }
+        if let Some(currency) = input.currency {
+            self.currency = currency;
+        }
     }
 }
 

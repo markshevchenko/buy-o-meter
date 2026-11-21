@@ -1,0 +1,28 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // Роли описаны в .claude/agents/ (их читают Cursor и Claude Code); здесь только модели и права для opencode.
+  "model": "anthropic/claude-opus-5-5",
+  "agents": {
+    "acceptance-tests": {
+      "description": "Пишет приёмочные интеграционные тесты по критериям приёмки пользовательской истории до реализации. Шаг 3 цикла задачи из AGENTS.md.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-5-5",
+      "system": "{file:./.claude/agents/acceptance-tests.md}"
+    },
+    "implementer": {
+      "description": "Реализует историю по TDD, пока не пройдут приёмочные тесты и scripts/check.sh. Шаг 4 цикла задачи из AGENTS.md.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-5-5",
+      "system": "{file:./.claude/agents/implementer.md}"
+    },
+    "reviewer": {
+      "description": "Ревью изменений ветки относительно main по правилам docs/REVIEW.md. Шаг 6 цикла задачи из AGENTS.md.",
+      "mode": "subagent",
+      "model": "anthropic/claude-opus-5-5",
+      "system": "{file:./.claude/agents/reviewer.md}",
+      "permissions": [
+        { "action": "edit", "resource": "*", "effect": "deny" }
+      ]
+    }
+  }
+}

@@ -4,6 +4,7 @@ pkgs.mkShell {
         rustup
         wasm-pack
         sfz
+        trunk
         gh
     ];
 }

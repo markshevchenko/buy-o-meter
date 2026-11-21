@@ -12,4 +12,7 @@ cargo clippy -q --workspace --all-targets -- -D warnings
 echo "== test"
 cargo test -q --workspace
 
+echo "== wasm"
+cargo build -q -p web --target wasm32-unknown-unknown
+
 echo "OK"

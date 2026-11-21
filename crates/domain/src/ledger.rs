@@ -1,6 +1,6 @@
 use crate::account::{Account, AccountId, CreateAccount, UpdateAccount};
 use crate::category::{
-    Category, CategoryAmount, CategoryId, CreateCategory, EntryKind, UpdateCategory,
+    Applicability, Category, CategoryAmount, CategoryId, CreateCategory, EntryKind, UpdateCategory,
 };
 use crate::error::DomainError;
 use crate::operation::{OperationDraft, RepaymentDirection};
@@ -127,8 +127,10 @@ impl Ledger {
     /// Категории, которые можно выбрать при вводе операции этого вида.
     #[must_use]
     pub fn categories_for(&self, kind: EntryKind) -> Vec<&Category> {
-        let _ = kind;
-        todo!()
+        self.categories
+            .iter()
+            .filter(|category| applies_to(category.applicability(), kind))
+            .collect()
     }
 
     pub fn add_operation(&mut self, draft: OperationDraft) -> Result<(), DomainError> {
@@ -208,6 +210,15 @@ impl Ledger {
         self.operations
             .iter()
             .any(|operation| operation_touches_account(operation, id))
+    }
+}
+
+fn applies_to(applicability: Applicability, kind: EntryKind) -> bool {
+    match kind {
+        EntryKind::Expense => {
+            matches!(applicability, Applicability::Expense | Applicability::Both)
+        }
+        EntryKind::Income => matches!(applicability, Applicability::Income | Applicability::Both),
     }
 }
 
@@ -342,6 +353,38 @@ mod tests {
             amount: 1,
         });
         assert_eq!(err, Err(DomainError::AccountRequired));
+    }
+
+    #[test]
+    fn categories_for_kind_include_that_kind_and_both() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let expense = ledger.create_category(CreateCategory {
+            name: "Транспорт".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let income = ledger.create_category(CreateCategory {
+            name: "Зарплата".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Income),
+        })?;
+        let both = ledger.create_category(CreateCategory {
+            name: "Подарки".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Both),
+        })?;
+
+        let for_expense = ledger.categories_for(EntryKind::Expense);
+        let for_income = ledger.categories_for(EntryKind::Income);
+        assert!(for_expense.iter().any(|category| category.id() == expense));
+        assert!(for_expense.iter().any(|category| category.id() == both));
+        assert!(!for_expense.iter().any(|category| category.id() == income));
+        assert!(for_income.iter().any(|category| category.id() == income));
+        assert!(for_income.iter().any(|category| category.id() == both));
+        assert!(!for_income.iter().any(|category| category.id() == expense));
+        Ok(())
     }
 
     #[test]

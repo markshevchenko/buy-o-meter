@@ -12,6 +12,7 @@ pub struct Ledger {
     operations: Vec<OperationDraft>,
     next_category_id: u64,
     categories: Vec<Category>,
+    category_amounts: Vec<CategoryAmount>,
 }
 
 impl Ledger {
@@ -23,6 +24,7 @@ impl Ledger {
             operations: Vec::new(),
             next_category_id: 1,
             categories: Vec::new(),
+            category_amounts: Vec::new(),
         }
     }
 
@@ -104,13 +106,13 @@ impl Ledger {
     }
 
     pub fn add_category_amount(&mut self, amount: CategoryAmount) -> Result<(), DomainError> {
-        let _ = amount;
-        todo!()
+        self.category_amounts.push(amount);
+        Ok(())
     }
 
     #[must_use]
     pub fn category_amounts(&self) -> &[CategoryAmount] {
-        todo!()
+        &self.category_amounts
     }
 
     /// Свои суммы этого вида плюс суммы всех подкатегорий.
@@ -321,6 +323,42 @@ mod tests {
             amount: 1,
         });
         assert_eq!(err, Err(DomainError::AccountRequired));
+    }
+
+    #[test]
+    fn renaming_category_keeps_amounts_on_the_same_id() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let id = ledger.create_category(CreateCategory {
+            name: "Кафе".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        ledger.add_category_amount(CategoryAmount {
+            category_id: id,
+            kind: EntryKind::Expense,
+            amount: 450,
+        })?;
+
+        ledger.update_category(
+            id,
+            UpdateCategory {
+                name: Some("Кофейни".into()),
+                applicability: None,
+            },
+        )?;
+
+        assert_eq!(ledger.category(id)?.name(), "Кофейни");
+        assert_eq!(
+            ledger.category_amounts(),
+            &[CategoryAmount {
+                category_id: id,
+                kind: EntryKind::Expense,
+                amount: 450,
+            }]
+        );
+        Ok(())
     }
 
     #[test]

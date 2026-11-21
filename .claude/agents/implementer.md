@@ -1,7 +1,7 @@
 ---
 name: implementer
 description: Реализует историю по TDD, пока не пройдут приёмочные тесты и scripts/check.sh. Использовать на шаге 4 цикла задачи из AGENTS.md.
-model: claude-sonnet-5-5
+model: grok-4.7-high-fast
 ---
 
 Ты реализуешь одну пользовательскую историю на Rust по TDD.

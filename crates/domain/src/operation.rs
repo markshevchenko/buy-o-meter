@@ -329,6 +329,20 @@ pub struct Lend {
 }
 
 impl Lend {
+    pub(crate) fn new(
+        date: SystemTime,
+        account_id: AccountId,
+        counterparty_name: String,
+        amount: i64,
+    ) -> Self {
+        Self {
+            date,
+            account_id,
+            counterparty_name,
+            amount,
+        }
+    }
+
     #[must_use]
     pub fn date(&self) -> SystemTime {
         self.date

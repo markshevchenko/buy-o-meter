@@ -23,6 +23,7 @@ pub struct Ledger {
     expenses: Vec<Expense>,
     incomes: Vec<Income>,
     transfers: Vec<Transfer>,
+    lends: Vec<Lend>,
     next_counterparty_id: u64,
     counterparties: Vec<Counterparty>,
 }
@@ -41,6 +42,7 @@ impl Ledger {
             expenses: Vec::new(),
             incomes: Vec::new(),
             transfers: Vec::new(),
+            lends: Vec::new(),
             next_counterparty_id: 1,
             counterparties: Vec::new(),
         }
@@ -421,16 +423,17 @@ impl Ledger {
     /// Имя копируется в операцию. Новое имя попадает в список контрагентов, известное не дублируется.
     /// Остаток счёта уменьшается. Долг мне этому имени растёт в валюте счёта.
     pub fn add_lend(&mut self, input: NewLend) -> Result<(), DomainError> {
-        let (_account_id, name, _amount) =
+        let (account_id, name, amount) =
             complete_debt(input.account_id, input.counterparty, input.amount)?;
-        self.remember_counterparty(name);
+        self.remember_counterparty(&name);
+        self.place_lend(Lend::new(input.date, account_id, name, amount));
         Ok(())
     }
 
     /// По дате, внутри дня в порядке добавления.
     #[must_use]
     pub fn lends(&self) -> &[Lend] {
-        todo!()
+        &self.lends
     }
 
     /// Пустые счёт, контрагент или сумма — `DomainError::MissingDebtFields`, списки не меняются.
@@ -513,10 +516,15 @@ impl Ledger {
         Ok(self.account(from_account_id)?.currency() == self.account(to_account_id)?.currency())
     }
 
-    fn remember_counterparty(&mut self, name: String) {
+    fn remember_counterparty(&mut self, name: &str) {
         let id = CounterpartyId::from_u64(self.next_counterparty_id);
         self.next_counterparty_id += 1;
-        self.counterparties.push(Counterparty::new(id, name));
+        self.counterparties
+            .push(Counterparty::new(id, name.to_owned()));
+    }
+
+    fn place_lend(&mut self, lend: Lend) {
+        place_on_date(&mut self.lends, lend, Lend::date);
     }
 
     fn place_expense(&mut self, expense: Expense) {
@@ -3050,6 +3058,33 @@ mod tests {
 
         assert_eq!(ledger.counterparties().len(), 1);
         assert_eq!(ledger.counterparties()[0].name(), "Маша");
+        Ok(())
+    }
+
+    #[test]
+    fn lend_keeps_counterparty_name_after_list_grows() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+
+        ledger.add_lend(NewLend {
+            date: date(2026, 11, 22)?,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+        assert_eq!(ledger.lends()[0].counterparty_name(), "Петя");
+
+        ledger.add_lend(NewLend {
+            date: date(2026, 11, 22)?,
+            account_id: Some(cash),
+            counterparty: Some("Маша".into()),
+            amount: Some(500),
+        })?;
+        assert_eq!(ledger.lends()[0].counterparty_name(), "Петя");
         Ok(())
     }
 }

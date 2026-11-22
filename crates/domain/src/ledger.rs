@@ -211,6 +211,10 @@ impl Ledger {
             amount,
             input.comment,
         ));
+        self.operations.push(OperationDraft::Expense {
+            account_id,
+            amount,
+        });
         Ok(())
     }
 
@@ -1190,6 +1194,43 @@ mod tests {
         assert!(ledger.expenses().is_empty());
         assert_eq!(ledger.balance(account_id)?, 10_000);
         assert_eq!(ledger.expense_total(category_id)?, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn saved_expense_reduces_only_its_account_balance() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+        use std::time::SystemTime;
+
+        let mut ledger = Ledger::new();
+        let rub = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 10_000,
+        })?;
+        let usd = ledger.create_account(CreateAccount {
+            name: "Доллары".into(),
+            currency: Currency::new("USD"),
+            opening_balance: 100,
+        })?;
+        let category_id = ledger.create_category(CreateCategory {
+            name: "Продукты".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+
+        ledger.add_expense(NewExpense {
+            date: SystemTime::UNIX_EPOCH,
+            account_id: Some(usd),
+            category_id: Some(category_id),
+            amount: Some(15),
+            comment: String::new(),
+        })?;
+
+        assert_eq!(ledger.balance(usd)?, 85);
+        assert_eq!(ledger.balance(rub)?, 10_000);
+        assert_eq!(ledger.expenses()[0].amount(), 15);
+        assert_eq!(ledger.account(usd)?.currency().as_str(), "USD");
         Ok(())
     }
 }

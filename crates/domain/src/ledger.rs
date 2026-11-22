@@ -204,7 +204,7 @@ impl Ledger {
     /// Сумма уменьшает остаток счёта и входит в итог категории.
     pub fn add_expense(&mut self, input: NewExpense) -> Result<(), DomainError> {
         let (account_id, category_id, amount) = complete_expense(&input)?;
-        self.expenses.push(Expense::new(
+        self.place_expense(Expense::new(
             input.date,
             account_id,
             category_id,
@@ -226,6 +226,14 @@ impl Ledger {
     #[must_use]
     pub fn expenses(&self) -> &[Expense] {
         &self.expenses
+    }
+
+    fn place_expense(&mut self, expense: Expense) {
+        let date = expense.date();
+        let index = self
+            .expenses
+            .partition_point(|existing| existing.date() <= date);
+        self.expenses.insert(index, expense);
     }
 
     fn prepare_category(&self, mut input: CreateCategory) -> Result<CreateCategory, DomainError> {
@@ -1271,6 +1279,48 @@ mod tests {
         assert_eq!(ledger.expenses()[0].category_id(), food);
         assert_eq!(ledger.expense_total(food)?, 1_200);
         assert_eq!(ledger.expense_total(groceries)?, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn expense_on_earlier_date_appends_to_that_day() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+        use std::time::{Duration, SystemTime};
+
+        let mut ledger = Ledger::new();
+        let account_id = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 10_000,
+        })?;
+        let category_id = ledger.create_category(CreateCategory {
+            name: "Продукты".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let yesterday = SystemTime::UNIX_EPOCH;
+        let today = yesterday + Duration::from_secs(24 * 60 * 60);
+        let expense = |date, amount, comment: &str| NewExpense {
+            date,
+            account_id: Some(account_id),
+            category_id: Some(category_id),
+            amount: Some(amount),
+            comment: comment.into(),
+        };
+
+        ledger.add_expense(expense(yesterday, 100, "вчера"))?;
+        ledger.add_expense(expense(today, 200, "сегодня"))?;
+        ledger.add_expense(expense(yesterday, 300, "забытый"))?;
+
+        let expenses = ledger.expenses();
+        assert_eq!(expenses.len(), 3);
+        assert_eq!(expenses[0].date(), yesterday);
+        assert_eq!(expenses[0].amount(), 100);
+        assert_eq!(expenses[1].date(), yesterday);
+        assert_eq!(expenses[1].amount(), 300);
+        assert_eq!(expenses[1].comment(), "забытый");
+        assert_eq!(expenses[2].date(), today);
+        assert_eq!(expenses[2].amount(), 200);
         Ok(())
     }
 }

@@ -185,9 +185,7 @@ impl Ledger {
     }
 
     fn has_expenses(&self, id: CategoryId) -> bool {
-        self.expenses
-            .iter()
-            .any(|expense| expense.category_id() == id)
+        saved_expense(&self.expenses, id) || recorded_expense(&self.records, id)
     }
 
     pub fn delete_category(
@@ -206,7 +204,7 @@ impl Ledger {
     }
 
     fn has_incomes(&self, id: CategoryId) -> bool {
-        self.incomes.iter().any(|income| income.category_id() == id)
+        saved_income(&self.incomes, id) || recorded_income(&self.records, id)
     }
 
     fn relocate_operations(
@@ -254,6 +252,7 @@ impl Ledger {
                 income.set_category_id(to);
             }
         }
+        move_records(&mut self.records, from, to);
     }
 
     pub fn add_record(&mut self, record: Record) -> Result<(), DomainError> {
@@ -684,6 +683,39 @@ fn complete_transfer(input: &NewTransfer) -> Result<(AccountId, AccountId, i64),
                 amount: amount.is_none(),
                 to_amount: false,
             }))
+        }
+    }
+}
+
+fn saved_expense(expenses: &[Expense], id: CategoryId) -> bool {
+    expenses.iter().any(|expense| expense.category_id() == id)
+}
+
+fn saved_income(incomes: &[Income], id: CategoryId) -> bool {
+    incomes.iter().any(|income| income.category_id() == id)
+}
+
+fn recorded_expense(records: &[Record], id: CategoryId) -> bool {
+    records.iter().any(|record| match record {
+        Record::Expense { category_id, .. } => *category_id == id,
+        Record::Income { .. } => false,
+    })
+}
+
+fn recorded_income(records: &[Record], id: CategoryId) -> bool {
+    records.iter().any(|record| match record {
+        Record::Income { category_id, .. } => *category_id == id,
+        Record::Expense { .. } => false,
+    })
+}
+
+fn move_records(records: &mut [Record], from: CategoryId, to: CategoryId) {
+    for record in records {
+        let category_id = match record {
+            Record::Expense { category_id, .. } | Record::Income { category_id, .. } => category_id,
+        };
+        if *category_id == from {
+            *category_id = to;
         }
     }
 }
@@ -2815,6 +2847,86 @@ mod tests {
             ledger.income_total(salary),
             Err(DomainError::CategoryNotFound)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn deleting_records_without_a_target_keeps_the_category() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let lunches = ledger.create_category(CreateCategory {
+            name: "Обеды в городе".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+        ledger.add_record(Record::Expense {
+            category_id: lunches,
+            amount: 1_500,
+        })?;
+        let records_before = ledger.records().to_vec();
+
+        let err = ledger.delete_category(lunches, None);
+
+        assert_eq!(err, Err(DomainError::TransferTargetRequired));
+        assert_eq!(ledger.category(lunches)?.name(), "Обеды в городе");
+        assert_eq!(ledger.records(), records_before.as_slice());
+        assert_eq!(ledger.expense_total(lunches)?, 1_500);
+        assert_eq!(ledger.expense_total(food)?, 1_500);
+        Ok(())
+    }
+
+    #[test]
+    fn deleting_moves_records_and_keeps_parent_total() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let lunches = ledger.create_category(CreateCategory {
+            name: "Обеды в городе".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+        let home_lunches = ledger.create_category(CreateCategory {
+            name: "Обед дома".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+        let salary = ledger.create_category(CreateCategory {
+            name: "Зарплата".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Income),
+        })?;
+        ledger.add_record(Record::Expense {
+            category_id: lunches,
+            amount: 1_500,
+        })?;
+
+        let targets = target_ids(&ledger, lunches)?;
+        assert!(!targets.contains(&salary));
+
+        ledger.delete_category(lunches, Some(home_lunches))?;
+
+        assert_eq!(
+            ledger.records(),
+            [Record::Expense {
+                category_id: home_lunches,
+                amount: 1_500,
+            }]
+            .as_slice()
+        );
+        assert_eq!(ledger.expense_total(home_lunches)?, 1_500);
+        assert_eq!(ledger.expense_total(food)?, 1_500);
+        assert_eq!(ledger.category(lunches), Err(DomainError::CategoryNotFound));
         Ok(())
     }
 }

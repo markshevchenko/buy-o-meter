@@ -35,6 +35,10 @@ impl Counterparty {
     pub fn name(&self) -> &str {
         &self.name
     }
+
+    pub(crate) fn set_name(&mut self, name: String) {
+        self.name = name;
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -4,10 +4,13 @@ use crate::account::{Account, AccountId, CreateAccount, UpdateAccount};
 use crate::category::{Applicability, Category, CategoryId, CreateCategory, UpdateCategory};
 use crate::counterparty::{Counterparty, CounterpartyId, Debt};
 use crate::currency::Currency;
-use crate::error::{DomainError, MissingDebtFields, MissingFields, MissingTransferFields};
+use crate::error::{
+    DomainError, MissingDebtFields, MissingFields, MissingRepaymentFields, MissingTransferFields,
+};
 use crate::operation::{
-    Borrow, Expense, Income, Lend, NewBorrow, NewExpense, NewIncome, NewLend, NewTransfer,
-    OperationDraft, Record, RepaymentDirection, Transfer, TransferAmountFields,
+    Borrow, Expense, Income, Lend, NewBorrow, NewExpense, NewIncome, NewLend, NewRepayment,
+    NewTransfer, OperationDraft, Record, Repayment, RepaymentDirection, Transfer,
+    TransferAmountFields,
 };
 use crate::starter::{EXPENSE_TREE, INCOME_TREE, StarterGroup};
 
@@ -25,6 +28,7 @@ pub struct Ledger {
     transfers: Vec<Transfer>,
     lends: Vec<Lend>,
     borrows: Vec<Borrow>,
+    repayments: Vec<Repayment>,
     next_counterparty_id: u64,
     counterparties: Vec<Counterparty>,
 }
@@ -45,6 +49,7 @@ impl Ledger {
             transfers: Vec::new(),
             lends: Vec::new(),
             borrows: Vec::new(),
+            repayments: Vec::new(),
             next_counterparty_id: 1,
             counterparties: Vec::new(),
         }
@@ -467,6 +472,53 @@ impl Ledger {
         &self.borrows
     }
 
+    /// Пустые счёт, контрагент, направление или сумма —
+    /// `DomainError::MissingRepaymentFields`, списки не меняются.
+    /// Нет открытого долга этому имени в выбранном направлении и валюте счёта —
+    /// `DomainError::NoDebt`.
+    /// Сумма больше остатка — `DomainError::RepaymentExceedsDebt`,
+    /// в `remaining` остаток долга; операция не сохраняется.
+    /// `RepaymentDirection::Received` («мне вернули») уменьшает долг мне и увеличивает остаток счёта.
+    /// `RepaymentDirection::Given` («я вернул») уменьшает мой долг и уменьшает остаток счёта.
+    /// Встречное направление не меняется. Имя копируется в операцию.
+    pub fn add_repayment(&mut self, input: NewRepayment) -> Result<(), DomainError> {
+        let (account_id, name, direction, amount) = complete_repayment(
+            input.account_id,
+            input.counterparty,
+            input.direction,
+            input.amount,
+        )?;
+        self.ensure_account(account_id)?;
+        let remaining = self.debt_remaining(account_id, &name, direction)?;
+        if remaining == 0 {
+            return Err(DomainError::NoDebt);
+        }
+        if amount > remaining {
+            return Err(DomainError::RepaymentExceedsDebt { remaining });
+        }
+        #[rustfmt::skip]
+        self.place_repayment(Repayment::new(
+            input.date,
+            account_id,
+            name,
+            direction,
+            amount,
+        ));
+        #[rustfmt::skip]
+        self.operations.push(OperationDraft::Repayment {
+            account_id,
+            amount,
+            direction,
+        });
+        Ok(())
+    }
+
+    /// По дате, внутри дня в порядке добавления.
+    #[must_use]
+    pub fn repayments(&self) -> &[Repayment] {
+        &self.repayments
+    }
+
     /// Имена для выбора, в порядке появления.
     #[must_use]
     pub fn counterparties(&self) -> &[Counterparty] {
@@ -476,36 +528,73 @@ impl Ledger {
     /// Меняет имя только в списке. В операциях остаётся прежнее.
     /// Нет такого id — `CounterpartyNotFound`.
     /// Ненулевой долг по текущему имени в любую сторону — `CounterpartyHasDebts`, список не меняется.
+    /// Нулевой остаток после возврата не мешает.
     pub fn rename_counterparty(
         &mut self,
         id: CounterpartyId,
         name: String,
     ) -> Result<(), DomainError> {
         self.reject_if_counterparty_has_debts(id)?;
-        let _ = name;
-        todo!()
+        self.find_counterparty_mut(id)
+            .ok_or(DomainError::CounterpartyNotFound)?
+            .set_name(name);
+        Ok(())
     }
 
     /// Убирает имя из списка. В операциях оно остаётся.
     /// Нет такого id — `CounterpartyNotFound`.
     /// Ненулевой долг по текущему имени в любую сторону — `CounterpartyHasDebts`, список не меняется.
+    /// Нулевой остаток после возврата не мешает.
     pub fn delete_counterparty(&mut self, id: CounterpartyId) -> Result<(), DomainError> {
         self.reject_if_counterparty_has_debts(id)?;
-        todo!()
+        self.counterparties
+            .retain(|counterparty| counterparty.id() != id);
+        Ok(())
     }
 
-    /// Кому я дал и ещё не получил. Одна запись на имя и валюту, сумма больше нуля.
+    /// Кому я дал и ещё не получил обратно: выдачи минус возвраты «мне вернули».
+    /// Одна запись на имя и валюту, сумма больше нуля.
     /// Встречный долг в этот список не сворачивается.
     #[must_use]
     pub fn debts_to_me(&self) -> Vec<Debt> {
-        debt_balances(self, &self.lends, lend_parts)
+        self.open_debts(&self.lends, lend_parts, RepaymentDirection::Received)
     }
 
-    /// У кого я взял и ещё не отдал. Одна запись на имя и валюту, сумма больше нуля.
+    /// У кого я взял и ещё не отдал: займы минус возвраты «я вернул».
+    /// Одна запись на имя и валюту, сумма больше нуля.
     /// Встречный долг в этот список не сворачивается.
     #[must_use]
     pub fn my_debts(&self) -> Vec<Debt> {
-        debt_balances(self, &self.borrows, borrow_parts)
+        self.open_debts(&self.borrows, borrow_parts, RepaymentDirection::Given)
+    }
+
+    fn debt_remaining(
+        &self,
+        account_id: AccountId,
+        name: &str,
+        direction: RepaymentDirection,
+    ) -> Result<i64, DomainError> {
+        let currency = self.account(account_id)?.currency().clone();
+        let debts = match direction {
+            RepaymentDirection::Received => self.debts_to_me(),
+            RepaymentDirection::Given => self.my_debts(),
+        };
+        Ok(debts
+            .iter()
+            .find(|debt| debt.counterparty_name() == name && debt.currency() == &currency)
+            .map(Debt::amount)
+            .unwrap_or(0))
+    }
+
+    fn open_debts<T>(
+        &self,
+        items: &[T],
+        parts: impl Fn(&T) -> (&str, AccountId, i64),
+        repaid_by: RepaymentDirection,
+    ) -> Vec<Debt> {
+        let mut totals = balance_totals(self, items, parts);
+        subtract_repayments(&mut totals, self, repaid_by);
+        positive_debts(totals)
     }
 
     fn credited_amount(
@@ -577,6 +666,10 @@ impl Ledger {
 
     fn place_borrow(&mut self, borrow: Borrow) {
         place_on_date(&mut self.borrows, borrow, Borrow::date);
+    }
+
+    fn place_repayment(&mut self, repayment: Repayment) {
+        place_on_date(&mut self.repayments, repayment, Repayment::date);
     }
 
     fn place_expense(&mut self, expense: Expense) {
@@ -758,6 +851,12 @@ impl Ledger {
         self.accounts.iter_mut().find(|account| account.id() == id)
     }
 
+    fn find_counterparty_mut(&mut self, id: CounterpartyId) -> Option<&mut Counterparty> {
+        self.counterparties
+            .iter_mut()
+            .find(|counterparty| counterparty.id() == id)
+    }
+
     fn ensure_currency_change_allowed(
         &self,
         id: AccountId,
@@ -865,22 +964,55 @@ fn has_open_debt(debts: &[Debt], name: &str) -> bool {
     debts.iter().any(|debt| debt.counterparty_name() == name)
 }
 
-fn debt_balances<T>(
+fn balance_totals<T>(
     ledger: &Ledger,
     items: &[T],
     parts: impl Fn(&T) -> (&str, AccountId, i64),
-) -> Vec<Debt> {
-    let mut totals: Vec<(String, Currency, i64)> = Vec::new();
+) -> Vec<(String, Currency, i64)> {
+    let mut totals = Vec::new();
     for item in items {
         let (name, account_id, amount) = parts(item);
-        let Some(currency) = ledger
-            .find_account(account_id)
-            .map(|account| account.currency().clone())
-        else {
-            continue;
-        };
-        add_balance(&mut totals, name, currency, amount);
+        add_account_amount(ledger, &mut totals, name, account_id, amount);
     }
+    totals
+}
+
+fn subtract_repayments(
+    totals: &mut Vec<(String, Currency, i64)>,
+    ledger: &Ledger,
+    direction: RepaymentDirection,
+) {
+    for repayment in &ledger.repayments {
+        if repayment.direction() != direction {
+            continue;
+        }
+        add_account_amount(
+            ledger,
+            totals,
+            repayment.counterparty_name(),
+            repayment.account_id(),
+            -repayment.amount(),
+        );
+    }
+}
+
+fn add_account_amount(
+    ledger: &Ledger,
+    totals: &mut Vec<(String, Currency, i64)>,
+    name: &str,
+    account_id: AccountId,
+    amount: i64,
+) {
+    let Some(currency) = ledger
+        .find_account(account_id)
+        .map(|account| account.currency().clone())
+    else {
+        return;
+    };
+    add_balance(totals, name, currency, amount);
+}
+
+fn positive_debts(totals: Vec<(String, Currency, i64)>) -> Vec<Debt> {
     totals
         .into_iter()
         .filter(|(_, _, amount)| *amount > 0)
@@ -920,6 +1052,27 @@ fn borrow_parts(borrow: &Borrow) -> (&str, AccountId, i64) {
         borrow.account_id(),
         borrow.amount(),
     )
+}
+
+fn complete_repayment(
+    account_id: Option<AccountId>,
+    counterparty: Option<String>,
+    direction: Option<RepaymentDirection>,
+    amount: Option<i64>,
+) -> Result<(AccountId, String, RepaymentDirection, i64), DomainError> {
+    match (account_id, counterparty, direction, amount) {
+        (Some(account_id), Some(counterparty), Some(direction), Some(amount)) => {
+            Ok((account_id, counterparty, direction, amount))
+        }
+        (account_id, counterparty, direction, amount) => Err(DomainError::MissingRepaymentFields(
+            MissingRepaymentFields {
+                account: account_id.is_none(),
+                counterparty: counterparty.is_none(),
+                direction: direction.is_none(),
+                amount: amount.is_none(),
+            },
+        )),
+    }
 }
 
 fn complete_debt(
@@ -3353,6 +3506,287 @@ mod tests {
         assert_eq!(ledger.counterparties(), before.as_slice());
         assert_eq!(ledger.borrows()[0].counterparty_name(), "Маша");
         assert_eq!(ledger.borrows()[0].amount(), 5_000);
+        Ok(())
+    }
+
+    #[test]
+    fn received_repayment_reduces_debt_to_me_and_increases_balance() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        ledger.add_lend(NewLend {
+            date: date(2026, 11, 22)?,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+
+        ledger.add_repayment(NewRepayment {
+            date: date(2026, 11, 22)?,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            direction: Some(RepaymentDirection::Received),
+            amount: Some(2_000),
+        })?;
+
+        assert_eq!(ledger.balance(cash)?, 12_000);
+        let debts = ledger.debts_to_me();
+        assert_eq!(debts.len(), 1);
+        assert_eq!(debts[0].counterparty_name(), "Петя");
+        assert_eq!(debts[0].currency().as_str(), "RUB");
+        assert_eq!(debts[0].amount(), 8_000);
+        assert!(ledger.my_debts().is_empty());
+        assert_eq!(ledger.repayments()[0].counterparty_name(), "Петя");
+        assert_eq!(
+            ledger.repayments()[0].direction(),
+            RepaymentDirection::Received
+        );
+        assert_eq!(ledger.repayments()[0].amount(), 2_000);
+        Ok(())
+    }
+
+    #[test]
+    fn given_repayment_reduces_my_debt_and_leaves_debt_to_me() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 50_000,
+        })?;
+        let day = date(2026, 11, 22)?;
+        ledger.add_lend(NewLend {
+            date: day,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+        ledger.add_borrow(NewBorrow {
+            date: day,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(3_000),
+        })?;
+
+        ledger.add_repayment(NewRepayment {
+            date: day,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            direction: Some(RepaymentDirection::Given),
+            amount: Some(2_000),
+        })?;
+
+        assert_eq!(ledger.balance(cash)?, 41_000);
+        assert_eq!(ledger.my_debts().len(), 1);
+        assert_eq!(ledger.my_debts()[0].counterparty_name(), "Петя");
+        assert_eq!(ledger.my_debts()[0].currency().as_str(), "RUB");
+        assert_eq!(ledger.my_debts()[0].amount(), 1_000);
+        assert_eq!(ledger.debts_to_me().len(), 1);
+        assert_eq!(ledger.debts_to_me()[0].amount(), 10_000);
+        assert_eq!(ledger.repayments()[0].counterparty_name(), "Петя");
+        assert_eq!(
+            ledger.repayments()[0].direction(),
+            RepaymentDirection::Given
+        );
+
+        ledger.add_repayment(NewRepayment {
+            date: day,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            direction: Some(RepaymentDirection::Given),
+            amount: Some(1_000),
+        })?;
+
+        assert!(ledger.my_debts().is_empty());
+        assert_eq!(ledger.debts_to_me()[0].amount(), 10_000);
+        assert_eq!(ledger.balance(cash)?, 40_000);
+        Ok(())
+    }
+
+    #[test]
+    fn repayment_above_remaining_is_rejected() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let day = date(2026, 11, 22)?;
+        ledger.add_lend(NewLend {
+            date: day,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(5_000),
+        })?;
+        let balance_before = ledger.balance(cash)?;
+
+        assert_eq!(
+            ledger.add_repayment(NewRepayment {
+                date: day,
+                account_id: Some(cash),
+                counterparty: Some("Петя".into()),
+                direction: Some(RepaymentDirection::Received),
+                amount: Some(6_000),
+            }),
+            Err(DomainError::RepaymentExceedsDebt { remaining: 5_000 })
+        );
+        assert_eq!(ledger.debts_to_me()[0].amount(), 5_000);
+        assert_eq!(ledger.balance(cash)?, balance_before);
+        assert!(ledger.repayments().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn given_repayment_without_my_debt_is_rejected() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let day = date(2026, 11, 22)?;
+        ledger.add_lend(NewLend {
+            date: day,
+            account_id: Some(cash),
+            counterparty: Some("Маша".into()),
+            amount: Some(3_000),
+        })?;
+        let balance_before = ledger.balance(cash)?;
+
+        assert_eq!(
+            ledger.add_repayment(NewRepayment {
+                date: day,
+                account_id: Some(cash),
+                counterparty: Some("Маша".into()),
+                direction: Some(RepaymentDirection::Given),
+                amount: Some(1_000),
+            }),
+            Err(DomainError::NoDebt)
+        );
+        assert_eq!(ledger.balance(cash)?, balance_before);
+        assert_eq!(ledger.debts_to_me()[0].amount(), 3_000);
+        assert!(ledger.my_debts().is_empty());
+        assert!(ledger.repayments().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn repayment_in_another_currency_is_no_debt() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 100_000,
+        })?;
+        let dollars = ledger.create_account(CreateAccount {
+            name: "Доллары".into(),
+            currency: Currency::new("USD"),
+            opening_balance: 1_000,
+        })?;
+        let day = date(2026, 11, 22)?;
+        ledger.add_lend(NewLend {
+            date: day,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+        let rub_before = ledger.balance(cash)?;
+        let usd_before = ledger.balance(dollars)?;
+
+        assert_eq!(
+            ledger.add_repayment(NewRepayment {
+                date: day,
+                account_id: Some(dollars),
+                counterparty: Some("Петя".into()),
+                direction: Some(RepaymentDirection::Received),
+                amount: Some(1_000),
+            }),
+            Err(DomainError::NoDebt)
+        );
+        assert_eq!(ledger.debts_to_me().len(), 1);
+        assert_eq!(ledger.debts_to_me()[0].amount(), 10_000);
+        assert_eq!(ledger.debts_to_me()[0].currency().as_str(), "RUB");
+        assert_eq!(ledger.balance(cash)?, rub_before);
+        assert_eq!(ledger.balance(dollars)?, usd_before);
+        assert!(ledger.repayments().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn repaid_counterparty_can_be_renamed_and_deleted() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let day = date(2026, 11, 22)?;
+        ledger.add_lend(NewLend {
+            date: day,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+        ledger.add_repayment(NewRepayment {
+            date: day,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            direction: Some(RepaymentDirection::Received),
+            amount: Some(10_000),
+        })?;
+        assert!(ledger.debts_to_me().is_empty());
+
+        let id = ledger.counterparties()[0].id();
+        ledger.rename_counterparty(id, "Пётр".into())?;
+        assert_eq!(ledger.counterparties()[0].name(), "Пётр");
+        assert_eq!(ledger.lends()[0].counterparty_name(), "Петя");
+        assert_eq!(ledger.repayments()[0].counterparty_name(), "Петя");
+
+        ledger.delete_counterparty(id)?;
+        assert!(ledger.counterparties().is_empty());
+        assert_eq!(ledger.lends()[0].counterparty_name(), "Петя");
+        assert_eq!(ledger.repayments()[0].counterparty_name(), "Петя");
+        Ok(())
+    }
+
+    #[test]
+    fn repayment_on_earlier_date_appends_to_that_day() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let yesterday = date(2026, 11, 21)?;
+        let today = add_days(yesterday, 1)?;
+        ledger.add_lend(NewLend {
+            date: yesterday,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+        let repay = |when, amount| NewRepayment {
+            date: when,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            direction: Some(RepaymentDirection::Received),
+            amount: Some(amount),
+        };
+
+        ledger.add_repayment(repay(yesterday, 100))?;
+        ledger.add_repayment(repay(today, 200))?;
+        ledger.add_repayment(repay(yesterday, 300))?;
+
+        let repayments = ledger.repayments();
+        assert_eq!(repayments.len(), 3);
+        assert_eq!(repayments[0].date(), yesterday);
+        assert_eq!(repayments[0].amount(), 100);
+        assert_eq!(repayments[1].date(), yesterday);
+        assert_eq!(repayments[1].amount(), 300);
+        assert_eq!(repayments[2].date(), today);
+        assert_eq!(repayments[2].amount(), 200);
         Ok(())
     }
 }

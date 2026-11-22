@@ -428,13 +428,87 @@ impl Borrow {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewRepayment {
+    pub date: SystemTime,
+    pub account_id: Option<AccountId>,
+    pub counterparty: Option<String>,
+    pub direction: Option<RepaymentDirection>,
+    pub amount: Option<i64>,
+}
+
+impl NewRepayment {
+    #[must_use]
+    pub fn open(clock: &impl Clock) -> Self {
+        Self {
+            date: clock.today(),
+            account_id: None,
+            counterparty: None,
+            direction: None,
+            amount: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Repayment {
+    date: SystemTime,
+    account_id: AccountId,
+    counterparty_name: String,
+    direction: RepaymentDirection,
+    amount: i64,
+}
+
+impl Repayment {
+    pub(crate) fn new(
+        date: SystemTime,
+        account_id: AccountId,
+        counterparty_name: String,
+        direction: RepaymentDirection,
+        amount: i64,
+    ) -> Self {
+        Self {
+            date,
+            account_id,
+            counterparty_name,
+            direction,
+            amount,
+        }
+    }
+
+    #[must_use]
+    pub fn date(&self) -> SystemTime {
+        self.date
+    }
+
+    #[must_use]
+    pub fn account_id(&self) -> AccountId {
+        self.account_id
+    }
+
+    #[must_use]
+    pub fn counterparty_name(&self) -> &str {
+        &self.counterparty_name
+    }
+
+    #[must_use]
+    pub fn direction(&self) -> RepaymentDirection {
+        self.direction
+    }
+
+    #[must_use]
+    pub fn amount(&self) -> i64 {
+        self.amount
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::clock::FixedClock;
     use crate::date;
     use crate::error::DomainError;
 
-    use super::{NewBorrow, NewExpense, NewIncome, NewLend, NewTransfer};
+    use super::{NewBorrow, NewExpense, NewIncome, NewLend, NewRepayment, NewTransfer};
 
     #[test]
     fn open_sets_today_and_leaves_fields_empty() -> Result<(), DomainError> {
@@ -496,6 +570,19 @@ mod tests {
         assert_eq!(form.date, today);
         assert_eq!(form.account_id, None);
         assert_eq!(form.counterparty, None);
+        assert_eq!(form.amount, None);
+        Ok(())
+    }
+
+    #[test]
+    fn open_repayment_sets_today_and_leaves_fields_empty() -> Result<(), DomainError> {
+        let today = date(2026, 11, 22)?;
+        let form = NewRepayment::open(&FixedClock::new(today));
+
+        assert_eq!(form.date, today);
+        assert_eq!(form.account_id, None);
+        assert_eq!(form.counterparty, None);
+        assert_eq!(form.direction, None);
         assert_eq!(form.amount, None);
         Ok(())
     }

@@ -1,31 +1,7 @@
-use domain::{
-    Applicability, CategoryId, CreateCategory, DomainError, Ledger, Record, UpdateCategory,
-};
+mod common;
 
-fn create_top(
-    ledger: &mut Ledger,
-    name: &str,
-    applicability: Applicability,
-) -> Result<CategoryId, DomainError> {
-    ledger.create_category(CreateCategory {
-        name: name.into(),
-        parent_id: None,
-        applicability: Some(applicability),
-    })
-}
-
-fn create_child(
-    ledger: &mut Ledger,
-    name: &str,
-    parent_id: CategoryId,
-    applicability: Option<Applicability>,
-) -> Result<CategoryId, DomainError> {
-    ledger.create_category(CreateCategory {
-        name: name.into(),
-        parent_id: Some(parent_id),
-        applicability,
-    })
-}
+use common::{create_child, create_top};
+use domain::{Applicability, CategoryId, DomainError, Ledger, Record, UpdateCategory};
 
 fn add_expense(
     ledger: &mut Ledger,

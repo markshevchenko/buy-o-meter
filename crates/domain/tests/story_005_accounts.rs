@@ -1,20 +1,10 @@
+mod common;
+
+use common::create_account;
 use domain::{
     AccountId, CreateAccount, Currency, DomainError, Ledger, OperationDraft, RepaymentDirection,
     UpdateAccount,
 };
-
-fn create_account(
-    ledger: &mut Ledger,
-    name: &str,
-    currency: &str,
-    opening_balance: i64,
-) -> Result<AccountId, DomainError> {
-    ledger.create_account(CreateAccount {
-        name: name.into(),
-        currency: Currency::new(currency),
-        opening_balance,
-    })
-}
 
 // 005 «Создание счёта»
 #[test]

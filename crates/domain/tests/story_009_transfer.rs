@@ -1,34 +1,12 @@
 use std::time::SystemTime;
 
+mod common;
+
+use common::{create_account, create_top};
 use domain::{
-    AccountId, Applicability, CategoryId, CreateAccount, CreateCategory, Currency, DomainError,
-    FixedClock, Ledger, NewExpense, NewIncome, NewTransfer, TransferAmountFields, date,
+    AccountId, Applicability, DomainError, FixedClock, Ledger, NewExpense, NewIncome, NewTransfer,
+    TransferAmountFields, date,
 };
-
-fn create_account(
-    ledger: &mut Ledger,
-    name: &str,
-    currency: &str,
-    opening_balance: i64,
-) -> Result<AccountId, DomainError> {
-    ledger.create_account(CreateAccount {
-        name: name.into(),
-        currency: Currency::new(currency),
-        opening_balance,
-    })
-}
-
-fn create_category(
-    ledger: &mut Ledger,
-    name: &str,
-    applicability: Applicability,
-) -> Result<CategoryId, DomainError> {
-    ledger.create_category(CreateCategory {
-        name: name.into(),
-        parent_id: None,
-        applicability: Some(applicability),
-    })
-}
 
 fn assert_transfer(
     ledger: &Ledger,
@@ -173,8 +151,8 @@ fn category_totals_ignore_transfer() -> Result<(), DomainError> {
     let mut ledger = Ledger::new();
     let card = create_account(&mut ledger, "Карта", "RUB", 20_000)?;
     let cash = create_account(&mut ledger, "Наличные", "RUB", 1_000)?;
-    let food = create_category(&mut ledger, "Питание", Applicability::Expense)?;
-    let salary = create_category(&mut ledger, "Зарплата", Applicability::Income)?;
+    let food = create_top(&mut ledger, "Питание", Applicability::Expense)?;
+    let salary = create_top(&mut ledger, "Зарплата", Applicability::Income)?;
     let day = date(2026, 11, 22)?;
     ledger.add_expense(NewExpense {
         date: day,

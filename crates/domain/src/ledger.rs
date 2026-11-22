@@ -549,6 +549,13 @@ impl Ledger {
     }
 
     fn remember_counterparty(&mut self, name: &str) {
+        if self
+            .counterparties
+            .iter()
+            .any(|counterparty| counterparty.name() == name)
+        {
+            return;
+        }
         let id = CounterpartyId::from_u64(self.next_counterparty_id);
         self.next_counterparty_id += 1;
         self.counterparties
@@ -3251,6 +3258,32 @@ mod tests {
         assert_eq!(debts[0].currency().as_str(), "RUB");
         assert_eq!(debts[0].amount(), 10_000);
         assert!(ledger.my_debts().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn second_lend_to_same_name_keeps_one_counterparty() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 50_000,
+        })?;
+        ledger.add_lend(NewLend {
+            date: date(2026, 11, 22)?,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+        ledger.add_lend(NewLend {
+            date: date(2026, 11, 22)?,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(3_000),
+        })?;
+
+        assert_eq!(ledger.counterparties().len(), 1);
+        assert_eq!(ledger.counterparties()[0].name(), "Петя");
         Ok(())
     }
 }

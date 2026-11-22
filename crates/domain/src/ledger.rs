@@ -3,9 +3,10 @@ use std::time::SystemTime;
 use crate::account::{Account, AccountId, CreateAccount, UpdateAccount};
 use crate::category::{Applicability, Category, CategoryId, CreateCategory, UpdateCategory};
 use crate::currency::Currency;
-use crate::error::{DomainError, MissingFields};
+use crate::error::{DomainError, MissingFields, MissingTransferFields};
 use crate::operation::{
-    Expense, Income, NewExpense, NewIncome, OperationDraft, Record, RepaymentDirection,
+    Expense, Income, NewExpense, NewIncome, NewTransfer, OperationDraft, Record,
+    RepaymentDirection, Transfer, TransferAmountFields,
 };
 use crate::starter::{EXPENSE_TREE, INCOME_TREE, StarterGroup};
 
@@ -20,6 +21,7 @@ pub struct Ledger {
     records: Vec<Record>,
     expenses: Vec<Expense>,
     incomes: Vec<Income>,
+    transfers: Vec<Transfer>,
 }
 
 impl Ledger {
@@ -35,6 +37,7 @@ impl Ledger {
             records: Vec::new(),
             expenses: Vec::new(),
             incomes: Vec::new(),
+            transfers: Vec::new(),
         }
     }
 
@@ -296,12 +299,90 @@ impl Ledger {
         &self.incomes
     }
 
+    /// Одна валюта: списывается и зачисляется `amount`, `to_amount` пустой.
+    /// Разные валюты: списывается `amount`, зачисляется `to_amount`.
+    pub fn add_transfer(&mut self, input: NewTransfer) -> Result<(), DomainError> {
+        let (from_account_id, to_account_id, amount) = complete_transfer(&input)?;
+        if self.accounts.is_empty() {
+            return Err(DomainError::AccountRequired);
+        }
+        if from_account_id == to_account_id {
+            return Err(DomainError::SameAccount);
+        }
+        let to_amount =
+            self.credited_amount(from_account_id, to_account_id, amount, input.to_amount)?;
+        self.place_transfer(Transfer::new(
+            input.date,
+            from_account_id,
+            to_account_id,
+            amount,
+            to_amount,
+            input.comment,
+        ));
+        #[rustfmt::skip]
+        self.operations.push(OperationDraft::Transfer {
+            from_account_id,
+            from_amount: amount,
+            to_account_id,
+            to_amount,
+        });
+        Ok(())
+    }
+
+    /// По дате, внутри дня в порядке добавления.
+    #[must_use]
+    pub fn transfers(&self) -> &[Transfer] {
+        &self.transfers
+    }
+
+    pub fn transfer_amount_fields(
+        &self,
+        from_account_id: AccountId,
+        to_account_id: AccountId,
+    ) -> Result<TransferAmountFields, DomainError> {
+        if self.accounts_share_currency(from_account_id, to_account_id)? {
+            Ok(TransferAmountFields::One)
+        } else {
+            Ok(TransferAmountFields::Two)
+        }
+    }
+
+    fn credited_amount(
+        &self,
+        from_account_id: AccountId,
+        to_account_id: AccountId,
+        amount: i64,
+        to_amount: Option<i64>,
+    ) -> Result<i64, DomainError> {
+        if self.accounts_share_currency(from_account_id, to_account_id)? {
+            return Ok(amount);
+        }
+        to_amount.ok_or(DomainError::MissingTransferFields(MissingTransferFields {
+            from_account: false,
+            to_account: false,
+            amount: false,
+            to_amount: true,
+        }))
+    }
+
+    fn accounts_share_currency(
+        &self,
+        from_account_id: AccountId,
+        to_account_id: AccountId,
+    ) -> Result<bool, DomainError> {
+        Ok(self.account(from_account_id)?.currency() == self.account(to_account_id)?.currency())
+    }
+
     fn place_expense(&mut self, expense: Expense) {
         place_on_date(&mut self.expenses, expense, Expense::date);
     }
 
     fn place_income(&mut self, income: Income) {
         place_on_date(&mut self.incomes, income, Income::date);
+    }
+
+    fn place_transfer(&mut self, transfer: Transfer) {
+        place_on_date(&mut self.transfers, transfer, Transfer::date);
     }
 
     fn prepare_category(&self, mut input: CreateCategory) -> Result<CreateCategory, DomainError> {
@@ -525,6 +606,22 @@ fn place_on_date<T>(items: &mut Vec<T>, item: T, date_of: impl Fn(&T) -> SystemT
     items.insert(index, item);
 }
 
+fn complete_transfer(input: &NewTransfer) -> Result<(AccountId, AccountId, i64), DomainError> {
+    match (input.from_account_id, input.to_account_id, input.amount) {
+        (Some(from_account_id), Some(to_account_id), Some(amount)) => {
+            Ok((from_account_id, to_account_id, amount))
+        }
+        (from_account_id, to_account_id, amount) => {
+            Err(DomainError::MissingTransferFields(MissingTransferFields {
+                from_account: from_account_id.is_none(),
+                to_account: to_account_id.is_none(),
+                amount: amount.is_none(),
+                to_amount: false,
+            }))
+        }
+    }
+}
+
 fn complete_income(input: &NewIncome) -> Result<(AccountId, CategoryId, i64), DomainError> {
     complete_fields(input.account_id, input.category_id, input.amount)
 }
@@ -636,7 +733,7 @@ impl Default for Ledger {
 mod tests {
     use super::*;
     use crate::currency::Currency;
-    use crate::error::MissingFields;
+    use crate::error::{MissingFields, MissingTransferFields};
     use crate::{add_days, date};
 
     struct ExpectedGroup {
@@ -1899,6 +1996,336 @@ mod tests {
         });
         assert_eq!(err, Err(DomainError::AccountRequired));
         assert!(ledger.expenses().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_within_one_currency_moves_the_amount() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let card = ledger.create_account(CreateAccount {
+            name: "Карта".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 1_000,
+        })?;
+        let day = date(2026, 11, 22)?;
+
+        ledger.add_transfer(NewTransfer {
+            date: day,
+            from_account_id: Some(card),
+            to_account_id: Some(cash),
+            amount: Some(5_000),
+            to_amount: None,
+            comment: "на карман".into(),
+        })?;
+
+        assert_eq!(ledger.balance(card)?, 15_000);
+        assert_eq!(ledger.balance(cash)?, 6_000);
+        let transfers = ledger.transfers();
+        assert_eq!(transfers.len(), 1);
+        assert_eq!(transfers[0].date(), day);
+        assert_eq!(transfers[0].from_account_id(), card);
+        assert_eq!(transfers[0].to_account_id(), cash);
+        assert_eq!(transfers[0].amount(), 5_000);
+        assert_eq!(transfers[0].to_amount(), 5_000);
+        assert_eq!(transfers[0].comment(), "на карман");
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_between_currencies_moves_each_amount() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let card = ledger.create_account(CreateAccount {
+            name: "Карта".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let dollars = ledger.create_account(CreateAccount {
+            name: "Доллары".into(),
+            currency: Currency::new("USD"),
+            opening_balance: 100,
+        })?;
+        let day = date(2026, 11, 22)?;
+
+        ledger.add_transfer(NewTransfer {
+            date: day,
+            from_account_id: Some(card),
+            to_account_id: Some(dollars),
+            amount: Some(7_500),
+            to_amount: Some(80),
+            comment: String::new(),
+        })?;
+
+        assert_eq!(ledger.balance(card)?, 12_500);
+        assert_eq!(ledger.balance(dollars)?, 180);
+        let transfers = ledger.transfers();
+        assert_eq!(transfers.len(), 1);
+        assert_eq!(transfers[0].amount(), 7_500);
+        assert_eq!(transfers[0].to_amount(), 80);
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_amount_fields_follow_account_currencies() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let card = ledger.create_account(CreateAccount {
+            name: "Карта".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 0,
+        })?;
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 0,
+        })?;
+        let dollars = ledger.create_account(CreateAccount {
+            name: "Доллары".into(),
+            currency: Currency::new("USD"),
+            opening_balance: 0,
+        })?;
+
+        assert_eq!(
+            ledger.transfer_amount_fields(card, cash)?,
+            TransferAmountFields::One
+        );
+        assert_eq!(
+            ledger.transfer_amount_fields(card, dollars)?,
+            TransferAmountFields::Two
+        );
+        assert_eq!(
+            ledger.transfer_amount_fields(card, cash)?,
+            TransferAmountFields::One
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_to_the_same_account_is_rejected() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let card = ledger.create_account(CreateAccount {
+            name: "Карта".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 1_000,
+        })?;
+        let day = date(2026, 11, 22)?;
+        ledger.add_transfer(NewTransfer {
+            date: day,
+            from_account_id: Some(cash),
+            to_account_id: Some(card),
+            amount: Some(100),
+            to_amount: None,
+            comment: String::new(),
+        })?;
+        let saved = ledger.transfers().to_vec();
+
+        let rejected = ledger.add_transfer(NewTransfer {
+            date: day,
+            from_account_id: Some(card),
+            to_account_id: Some(card),
+            amount: Some(5_000),
+            to_amount: None,
+            comment: String::new(),
+        });
+
+        assert_eq!(rejected, Err(DomainError::SameAccount));
+        assert_eq!(ledger.transfers(), saved.as_slice());
+        assert_eq!(ledger.balance(card)?, 20_100);
+        assert_eq!(ledger.balance(cash)?, 900);
+        Ok(())
+    }
+
+    fn card_and_cash() -> Result<(Ledger, AccountId, AccountId), DomainError> {
+        let mut ledger = Ledger::new();
+        let card = ledger.create_account(CreateAccount {
+            name: "Карта".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 1_000,
+        })?;
+        Ok((ledger, card, cash))
+    }
+
+    fn transfer_input(
+        from_account_id: Option<AccountId>,
+        to_account_id: Option<AccountId>,
+        amount: Option<i64>,
+        to_amount: Option<i64>,
+    ) -> Result<NewTransfer, DomainError> {
+        Ok(NewTransfer {
+            date: date(2026, 11, 22)?,
+            from_account_id,
+            to_account_id,
+            amount,
+            to_amount,
+            comment: String::new(),
+        })
+    }
+
+    fn assert_transfer_fields_rejected(missing: MissingTransferFields) -> Result<(), DomainError> {
+        let (mut ledger, card, cash) = card_and_cash()?;
+        let err = ledger.add_transfer(transfer_input(
+            omit_if(missing.from_account, card),
+            omit_if(missing.to_account, cash),
+            omit_if(missing.amount, 100),
+            None,
+        )?);
+        assert_eq!(err, Err(DomainError::MissingTransferFields(missing)));
+        assert!(ledger.transfers().is_empty());
+        assert_eq!(ledger.balance(card)?, 20_000);
+        assert_eq!(ledger.balance(cash)?, 1_000);
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_without_accounts_or_amount_is_rejected() -> Result<(), DomainError> {
+        assert_transfer_fields_rejected(MissingTransferFields {
+            from_account: true,
+            to_account: false,
+            amount: false,
+            to_amount: false,
+        })?;
+        assert_transfer_fields_rejected(MissingTransferFields {
+            from_account: false,
+            to_account: true,
+            amount: false,
+            to_amount: false,
+        })?;
+        assert_transfer_fields_rejected(MissingTransferFields {
+            from_account: false,
+            to_account: false,
+            amount: true,
+            to_amount: false,
+        })?;
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_between_currencies_without_credited_amount_is_rejected() -> Result<(), DomainError>
+    {
+        let mut ledger = Ledger::new();
+        let card = ledger.create_account(CreateAccount {
+            name: "Карта".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let dollars = ledger.create_account(CreateAccount {
+            name: "Доллары".into(),
+            currency: Currency::new("USD"),
+            opening_balance: 100,
+        })?;
+
+        let err = ledger.add_transfer(transfer_input(
+            Some(card),
+            Some(dollars),
+            Some(7_500),
+            None,
+        )?);
+
+        assert_eq!(
+            err,
+            Err(DomainError::MissingTransferFields(MissingTransferFields {
+                from_account: false,
+                to_account: false,
+                amount: false,
+                to_amount: true,
+            }))
+        );
+        assert!(ledger.transfers().is_empty());
+        assert_eq!(ledger.balance(card)?, 20_000);
+        assert_eq!(ledger.balance(dollars)?, 100);
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_without_any_account_is_rejected() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let err = ledger.add_transfer(transfer_input(
+            Some(AccountId::from_u64(1)),
+            Some(AccountId::from_u64(1)),
+            Some(1),
+            None,
+        )?);
+        assert_eq!(err, Err(DomainError::AccountRequired));
+        assert!(ledger.transfers().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_with_unknown_account_is_rejected() -> Result<(), DomainError> {
+        let (mut ledger, card, cash) = card_and_cash()?;
+        let unknown_from = ledger.add_transfer(transfer_input(
+            Some(AccountId::from_u64(99)),
+            Some(cash),
+            Some(100),
+            None,
+        )?);
+        assert_eq!(unknown_from, Err(DomainError::AccountNotFound));
+        assert!(ledger.transfers().is_empty());
+        assert_eq!(ledger.balance(card)?, 20_000);
+        assert_eq!(ledger.balance(cash)?, 1_000);
+
+        let unknown_to = ledger.add_transfer(transfer_input(
+            Some(card),
+            Some(AccountId::from_u64(99)),
+            Some(100),
+            None,
+        )?);
+        assert_eq!(unknown_to, Err(DomainError::AccountNotFound));
+        assert!(ledger.transfers().is_empty());
+        assert_eq!(ledger.balance(card)?, 20_000);
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_on_earlier_date_appends_to_that_day() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let card = ledger.create_account(CreateAccount {
+            name: "Карта".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 1_000,
+        })?;
+        let yesterday = date(2026, 11, 21)?;
+        let today = add_days(yesterday, 1)?;
+        let transfer = |date, amount, comment: &str| NewTransfer {
+            date,
+            from_account_id: Some(card),
+            to_account_id: Some(cash),
+            amount: Some(amount),
+            to_amount: None,
+            comment: comment.into(),
+        };
+
+        ledger.add_transfer(transfer(yesterday, 100, "вчера"))?;
+        ledger.add_transfer(transfer(today, 200, "сегодня"))?;
+        ledger.add_transfer(transfer(yesterday, 300, "забытый"))?;
+
+        let transfers = ledger.transfers();
+        assert_eq!(transfers.len(), 3);
+        assert_eq!(transfers[0].date(), yesterday);
+        assert_eq!(transfers[0].amount(), 100);
+        assert_eq!(transfers[1].date(), yesterday);
+        assert_eq!(transfers[1].amount(), 300);
+        assert_eq!(transfers[1].comment(), "забытый");
+        assert_eq!(transfers[2].date(), today);
+        assert_eq!(transfers[2].amount(), 200);
         Ok(())
     }
 }

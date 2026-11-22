@@ -1,45 +1,9 @@
+mod common;
+
+use common::{create_account, create_child, create_top};
 use domain::{
-    AccountId, Applicability, CategoryId, CreateAccount, CreateCategory, Currency, DomainError,
-    FixedClock, Ledger, MissingFields, NewExpense, add_days, date,
+    Applicability, DomainError, FixedClock, Ledger, MissingFields, NewExpense, add_days, date,
 };
-
-fn create_account(
-    ledger: &mut Ledger,
-    name: &str,
-    currency: &str,
-    opening_balance: i64,
-) -> Result<AccountId, DomainError> {
-    ledger.create_account(CreateAccount {
-        name: name.into(),
-        currency: Currency::new(currency),
-        opening_balance,
-    })
-}
-
-fn create_top(
-    ledger: &mut Ledger,
-    name: &str,
-    applicability: Applicability,
-) -> Result<CategoryId, DomainError> {
-    ledger.create_category(CreateCategory {
-        name: name.into(),
-        parent_id: None,
-        applicability: Some(applicability),
-    })
-}
-
-fn create_child(
-    ledger: &mut Ledger,
-    name: &str,
-    parent_id: CategoryId,
-    applicability: Option<Applicability>,
-) -> Result<CategoryId, DomainError> {
-    ledger.create_category(CreateCategory {
-        name: name.into(),
-        parent_id: Some(parent_id),
-        applicability,
-    })
-}
 
 // 007 «Поля»
 #[test]

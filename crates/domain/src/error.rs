@@ -5,6 +5,14 @@ pub struct MissingFields {
     pub amount: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MissingTransferFields {
+    pub from_account: bool,
+    pub to_account: bool,
+    pub amount: bool,
+    pub to_amount: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainError {
     AccountNotFound,
@@ -17,6 +25,8 @@ pub enum DomainError {
     TransferTargetRequired,
     UnsuitableTransferTarget,
     MissingFields(MissingFields),
+    MissingTransferFields(MissingTransferFields),
     MixedCurrencies,
     InvalidDate,
+    SameAccount,
 }

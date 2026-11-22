@@ -81,7 +81,6 @@ impl Category {
 pub struct CreateCategory {
     pub name: String,
     pub parent_id: Option<CategoryId>,
-    /// `None` у подкатегории — признак родителя. Для верхнего уровня обязателен.
     pub applicability: Option<Applicability>,
 }
 

@@ -116,12 +116,10 @@ impl Ledger {
         &self.records
     }
 
-    /// Свои расходы плюс расходы прямых подкатегорий.
     pub fn expense_total(&self, id: CategoryId) -> Result<i64, DomainError> {
         self.rolled_total(id, Self::expense_of)
     }
 
-    /// Свои доходы плюс доходы прямых подкатегорий.
     pub fn income_total(&self, id: CategoryId) -> Result<i64, DomainError> {
         self.rolled_total(id, Self::income_of)
     }

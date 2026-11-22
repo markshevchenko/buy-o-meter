@@ -490,6 +490,9 @@ impl Ledger {
         )?;
         self.ensure_account(account_id)?;
         let remaining = self.debt_remaining(account_id, &name, direction)?;
+        if remaining == 0 {
+            return Err(DomainError::NoDebt);
+        }
         if amount > remaining {
             return Err(DomainError::RepaymentExceedsDebt { remaining });
         }
@@ -3621,6 +3624,82 @@ mod tests {
         );
         assert_eq!(ledger.debts_to_me()[0].amount(), 5_000);
         assert_eq!(ledger.balance(cash)?, balance_before);
+        assert!(ledger.repayments().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn given_repayment_without_my_debt_is_rejected() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let day = date(2026, 11, 22)?;
+        ledger.add_lend(NewLend {
+            date: day,
+            account_id: Some(cash),
+            counterparty: Some("Маша".into()),
+            amount: Some(3_000),
+        })?;
+        let balance_before = ledger.balance(cash)?;
+
+        assert_eq!(
+            ledger.add_repayment(NewRepayment {
+                date: day,
+                account_id: Some(cash),
+                counterparty: Some("Маша".into()),
+                direction: Some(RepaymentDirection::Given),
+                amount: Some(1_000),
+            }),
+            Err(DomainError::NoDebt)
+        );
+        assert_eq!(ledger.balance(cash)?, balance_before);
+        assert_eq!(ledger.debts_to_me()[0].amount(), 3_000);
+        assert!(ledger.my_debts().is_empty());
+        assert!(ledger.repayments().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn repayment_in_another_currency_is_no_debt() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 100_000,
+        })?;
+        let dollars = ledger.create_account(CreateAccount {
+            name: "Доллары".into(),
+            currency: Currency::new("USD"),
+            opening_balance: 1_000,
+        })?;
+        let day = date(2026, 11, 22)?;
+        ledger.add_lend(NewLend {
+            date: day,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+        let rub_before = ledger.balance(cash)?;
+        let usd_before = ledger.balance(dollars)?;
+
+        assert_eq!(
+            ledger.add_repayment(NewRepayment {
+                date: day,
+                account_id: Some(dollars),
+                counterparty: Some("Петя".into()),
+                direction: Some(RepaymentDirection::Received),
+                amount: Some(1_000),
+            }),
+            Err(DomainError::NoDebt)
+        );
+        assert_eq!(ledger.debts_to_me().len(), 1);
+        assert_eq!(ledger.debts_to_me()[0].amount(), 10_000);
+        assert_eq!(ledger.debts_to_me()[0].currency().as_str(), "RUB");
+        assert_eq!(ledger.balance(cash)?, rub_before);
+        assert_eq!(ledger.balance(dollars)?, usd_before);
         assert!(ledger.repayments().is_empty());
         Ok(())
     }

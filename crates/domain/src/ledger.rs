@@ -201,8 +201,10 @@ impl Ledger {
         id: CategoryId,
         transfer_to: Option<CategoryId>,
     ) -> Result<(), DomainError> {
-        let _ = (id, transfer_to);
-        todo!()
+        let _ = transfer_to;
+        self.find_category(id).ok_or(DomainError::CategoryNotFound)?;
+        self.categories.retain(|category| category.id() != id);
+        Ok(())
     }
 
     pub fn add_record(&mut self, record: Record) -> Result<(), DomainError> {
@@ -2462,6 +2464,47 @@ mod tests {
         let targets = target_ids(&ledger, food)?;
 
         assert!(targets.contains(&salary));
+        Ok(())
+    }
+
+    #[test]
+    fn empty_leaf_is_deleted_without_a_transfer_target() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let groceries = ledger.create_category(CreateCategory {
+            name: "Продукты".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+
+        ledger.delete_category(groceries, None)?;
+
+        assert!(
+            !ledger
+                .categories()
+                .iter()
+                .any(|category| category.id() == groceries)
+        );
+        assert_eq!(ledger.category(groceries), Err(DomainError::CategoryNotFound));
+        assert!(
+            !ledger
+                .categories_for_expense()
+                .iter()
+                .any(|category| category.id() == groceries)
+        );
+        assert!(
+            !ledger
+                .categories_for_income()
+                .iter()
+                .any(|category| category.id() == groceries)
+        );
+        assert_eq!(ledger.category(food)?.name(), "Питание");
         Ok(())
     }
 }

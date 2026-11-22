@@ -24,6 +24,7 @@ pub struct Ledger {
     incomes: Vec<Income>,
     transfers: Vec<Transfer>,
     lends: Vec<Lend>,
+    borrows: Vec<Borrow>,
     next_counterparty_id: u64,
     counterparties: Vec<Counterparty>,
 }
@@ -43,6 +44,7 @@ impl Ledger {
             incomes: Vec::new(),
             transfers: Vec::new(),
             lends: Vec::new(),
+            borrows: Vec::new(),
             next_counterparty_id: 1,
             counterparties: Vec::new(),
         }
@@ -487,14 +489,14 @@ impl Ledger {
     /// Встречный долг в этот список не сворачивается.
     #[must_use]
     pub fn debts_to_me(&self) -> Vec<Debt> {
-        todo!()
+        debt_balances(self, &self.lends, lend_parts)
     }
 
     /// У кого я взял и ещё не отдал. Одна запись на имя и валюту, сумма больше нуля.
     /// Встречный долг в этот список не сворачивается.
     #[must_use]
     pub fn my_debts(&self) -> Vec<Debt> {
-        todo!()
+        debt_balances(self, &self.borrows, borrow_parts)
     }
 
     fn credited_amount(
@@ -841,6 +843,63 @@ fn move_records(records: &mut [Record], from: CategoryId, to: CategoryId) {
 
 fn open_amount(lend: &Lend, name: &str) -> bool {
     lend.counterparty_name() == name && lend.amount() != 0
+}
+
+fn debt_balances<T>(
+    ledger: &Ledger,
+    items: &[T],
+    parts: impl Fn(&T) -> (&str, AccountId, i64),
+) -> Vec<Debt> {
+    let mut totals: Vec<(String, Currency, i64)> = Vec::new();
+    for item in items {
+        let (name, account_id, amount) = parts(item);
+        let Some(currency) = ledger
+            .find_account(account_id)
+            .map(|account| account.currency().clone())
+        else {
+            continue;
+        };
+        add_balance(&mut totals, name, currency, amount);
+    }
+    totals
+        .into_iter()
+        .filter(|(_, _, amount)| *amount > 0)
+        .map(|(name, currency, amount)| Debt::new(name, currency, amount))
+        .collect()
+}
+
+fn add_balance(
+    totals: &mut Vec<(String, Currency, i64)>,
+    name: &str,
+    currency: Currency,
+    amount: i64,
+) {
+    if let Some((_, _, total)) = totals
+        .iter_mut()
+        .find(|(existing, existing_currency, _)| existing == name && existing_currency == &currency)
+    {
+        *total += amount;
+        return;
+    }
+    totals.push((name.to_owned(), currency, amount));
+}
+
+#[rustfmt::skip]
+fn lend_parts(lend: &Lend) -> (&str, AccountId, i64) {
+    (
+        lend.counterparty_name(),
+        lend.account_id(),
+        lend.amount(),
+    )
+}
+
+#[rustfmt::skip]
+fn borrow_parts(borrow: &Borrow) -> (&str, AccountId, i64) {
+    (
+        borrow.counterparty_name(),
+        borrow.account_id(),
+        borrow.amount(),
+    )
 }
 
 fn complete_debt(
@@ -3168,6 +3227,30 @@ mod tests {
             amount: Some(10_000),
         })?;
         assert_eq!(ledger.balance(cash)?, 10_000);
+        Ok(())
+    }
+
+    #[test]
+    fn lending_adds_debt_to_me_in_account_currency() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        ledger.add_lend(NewLend {
+            date: date(2026, 11, 22)?,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+
+        let debts = ledger.debts_to_me();
+        assert_eq!(debts.len(), 1);
+        assert_eq!(debts[0].counterparty_name(), "Петя");
+        assert_eq!(debts[0].currency().as_str(), "RUB");
+        assert_eq!(debts[0].amount(), 10_000);
+        assert!(ledger.my_debts().is_empty());
         Ok(())
     }
 }

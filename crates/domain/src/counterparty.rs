@@ -46,6 +46,14 @@ pub struct Debt {
 }
 
 impl Debt {
+    pub(crate) fn new(counterparty_name: String, currency: Currency, amount: i64) -> Self {
+        Self {
+            counterparty_name,
+            currency,
+            amount,
+        }
+    }
+
     #[must_use]
     pub fn counterparty_name(&self) -> &str {
         &self.counterparty_name

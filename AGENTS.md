@@ -13,13 +13,13 @@
 
 ## Роли
 
-Основной агент (Claude Opus) координирует задачу и проектирует интерфейс; объёмную работу отдаёт субагентам из `.claude/agents/`:
+Основной агент (Grok 4.7, без Fast) координирует задачу и проектирует интерфейс; объёмную работу отдаёт субагентам из `.claude/agents/`. Fast только у реализации.
 
 | Субагент | Модель | Шаг |
 |---|---|---|
-| `acceptance-tests` | Claude Sonnet | 3 |
-| `implementer` | Claude Sonnet | 4 |
-| `reviewer` | Claude Opus | 6 |
+| `acceptance-tests` | `composer-2.5` | 3 |
+| `implementer` | `grok-4.7-high-fast` | 4 |
+| `reviewer` | `grok-4.7` | 6 |
 
 ## Цикл задачи
 

@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Ревью изменений ветки относительно main по правилам docs/REVIEW.md. Использовать на шаге 6 цикла задачи из AGENTS.md, когда scripts/check.sh проходит.
-model: grok-4.7-high-fast
+model: grok-4.7
 tools: Read, Grep, Glob, Bash
 ---
 

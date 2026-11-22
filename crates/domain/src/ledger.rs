@@ -317,8 +317,11 @@ impl Ledger {
         from_account_id: AccountId,
         to_account_id: AccountId,
     ) -> Result<TransferAmountFields, DomainError> {
-        let _ = (from_account_id, to_account_id);
-        todo!()
+        if self.accounts_share_currency(from_account_id, to_account_id)? {
+            Ok(TransferAmountFields::One)
+        } else {
+            Ok(TransferAmountFields::Two)
+        }
     }
 
     fn credited_amount(
@@ -328,12 +331,18 @@ impl Ledger {
         amount: i64,
         to_amount: Option<i64>,
     ) -> Result<i64, DomainError> {
-        let same_currency =
-            self.account(from_account_id)?.currency() == self.account(to_account_id)?.currency();
-        if same_currency {
+        if self.accounts_share_currency(from_account_id, to_account_id)? {
             return Ok(amount);
         }
         Ok(to_amount.unwrap_or(amount))
+    }
+
+    fn accounts_share_currency(
+        &self,
+        from_account_id: AccountId,
+        to_account_id: AccountId,
+    ) -> Result<bool, DomainError> {
+        Ok(self.account(from_account_id)?.currency() == self.account(to_account_id)?.currency())
     }
 
     fn place_expense(&mut self, expense: Expense) {
@@ -2018,6 +2027,40 @@ mod tests {
         assert_eq!(transfers.len(), 1);
         assert_eq!(transfers[0].amount(), 7_500);
         assert_eq!(transfers[0].to_amount(), 80);
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_amount_fields_follow_account_currencies() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let card = ledger.create_account(CreateAccount {
+            name: "Карта".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 0,
+        })?;
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 0,
+        })?;
+        let dollars = ledger.create_account(CreateAccount {
+            name: "Доллары".into(),
+            currency: Currency::new("USD"),
+            opening_balance: 0,
+        })?;
+
+        assert_eq!(
+            ledger.transfer_amount_fields(card, cash)?,
+            TransferAmountFields::One
+        );
+        assert_eq!(
+            ledger.transfer_amount_fields(card, dollars)?,
+            TransferAmountFields::Two
+        );
+        assert_eq!(
+            ledger.transfer_amount_fields(card, cash)?,
+            TransferAmountFields::One
+        );
         Ok(())
     }
 }

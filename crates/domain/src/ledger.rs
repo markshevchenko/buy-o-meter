@@ -285,6 +285,9 @@ impl Ledger {
     /// В итоги категорий перевод не входит.
     pub fn add_transfer(&mut self, input: NewTransfer) -> Result<(), DomainError> {
         let (from_account_id, to_account_id, amount) = complete_transfer(&input)?;
+        if from_account_id == to_account_id {
+            return Err(DomainError::SameAccount);
+        }
         let to_amount =
             self.credited_amount(from_account_id, to_account_id, amount, input.to_amount)?;
         self.transfers.push(Transfer::new(
@@ -2061,6 +2064,46 @@ mod tests {
             ledger.transfer_amount_fields(card, cash)?,
             TransferAmountFields::One
         );
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_to_the_same_account_is_rejected() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let card = ledger.create_account(CreateAccount {
+            name: "Карта".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 1_000,
+        })?;
+        let day = date(2026, 11, 22)?;
+        ledger.add_transfer(NewTransfer {
+            date: day,
+            from_account_id: Some(cash),
+            to_account_id: Some(card),
+            amount: Some(100),
+            to_amount: None,
+            comment: String::new(),
+        })?;
+        let saved = ledger.transfers().to_vec();
+
+        let rejected = ledger.add_transfer(NewTransfer {
+            date: day,
+            from_account_id: Some(card),
+            to_account_id: Some(card),
+            amount: Some(5_000),
+            to_amount: None,
+            comment: String::new(),
+        });
+
+        assert_eq!(rejected, Err(DomainError::SameAccount));
+        assert_eq!(ledger.transfers(), saved.as_slice());
+        assert_eq!(ledger.balance(card)?, 20_100);
+        assert_eq!(ledger.balance(cash)?, 900);
         Ok(())
     }
 }

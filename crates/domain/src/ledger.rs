@@ -211,6 +211,7 @@ impl Ledger {
             amount,
             input.comment,
         ));
+        #[rustfmt::skip]
         self.operations.push(OperationDraft::Expense {
             account_id,
             amount,
@@ -466,6 +467,7 @@ impl Default for Ledger {
 mod tests {
     use super::*;
     use crate::currency::Currency;
+    use crate::error::MissingFields;
 
     struct ExpectedGroup {
         name: &'static str,
@@ -1136,11 +1138,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn expense_without_account_category_or_amount_is_rejected() -> Result<(), DomainError> {
+    fn ledger_with_cash_and_groceries() -> Result<(Ledger, AccountId, CategoryId), DomainError> {
         use crate::category::Applicability;
-        use crate::error::MissingFields;
-        use std::time::SystemTime;
 
         let mut ledger = Ledger::new();
         let account_id = ledger.create_account(CreateAccount {
@@ -1153,59 +1152,48 @@ mod tests {
             parent_id: None,
             applicability: Some(Applicability::Expense),
         })?;
-        let date = SystemTime::UNIX_EPOCH;
+        Ok((ledger, account_id, category_id))
+    }
 
-        let missing_account = ledger.add_expense(NewExpense {
-            date,
-            account_id: None,
-            category_id: Some(category_id),
-            amount: Some(100),
+    fn omit_if<T>(missing: bool, value: T) -> Option<T> {
+        if missing { None } else { Some(value) }
+    }
+
+    fn assert_expense_rejected(missing: MissingFields) -> Result<(), DomainError> {
+        use std::time::SystemTime;
+
+        let (mut ledger, account_id, category_id) = ledger_with_cash_and_groceries()?;
+        let err = ledger.add_expense(NewExpense {
+            date: SystemTime::UNIX_EPOCH,
+            account_id: omit_if(missing.account, account_id),
+            category_id: omit_if(missing.category, category_id),
+            amount: omit_if(missing.amount, 100),
             comment: String::new(),
         });
-        assert_eq!(
-            missing_account,
-            Err(DomainError::MissingFields(MissingFields {
-                account: true,
-                category: false,
-                amount: false,
-            }))
-        );
-
-        let missing_category = ledger.add_expense(NewExpense {
-            date,
-            account_id: Some(account_id),
-            category_id: None,
-            amount: Some(100),
-            comment: String::new(),
-        });
-        assert_eq!(
-            missing_category,
-            Err(DomainError::MissingFields(MissingFields {
-                account: false,
-                category: true,
-                amount: false,
-            }))
-        );
-
-        let missing_amount = ledger.add_expense(NewExpense {
-            date,
-            account_id: Some(account_id),
-            category_id: Some(category_id),
-            amount: None,
-            comment: String::new(),
-        });
-        assert_eq!(
-            missing_amount,
-            Err(DomainError::MissingFields(MissingFields {
-                account: false,
-                category: false,
-                amount: true,
-            }))
-        );
-
+        assert_eq!(err, Err(DomainError::MissingFields(missing)));
         assert!(ledger.expenses().is_empty());
         assert_eq!(ledger.balance(account_id)?, 10_000);
         assert_eq!(ledger.expense_total(category_id)?, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn expense_without_account_category_or_amount_is_rejected() -> Result<(), DomainError> {
+        assert_expense_rejected(MissingFields {
+            account: true,
+            category: false,
+            amount: false,
+        })?;
+        assert_expense_rejected(MissingFields {
+            account: false,
+            category: true,
+            amount: false,
+        })?;
+        assert_expense_rejected(MissingFields {
+            account: false,
+            category: false,
+            amount: true,
+        })?;
         Ok(())
     }
 

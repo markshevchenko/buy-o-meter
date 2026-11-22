@@ -193,7 +193,7 @@ impl Ledger {
     }
 
     pub fn income_total(&self, id: CategoryId) -> Result<i64, DomainError> {
-        Ok(self.rolled_total(id, Self::income_of)? + self.saved_income_of(id))
+        self.rolled_total(id, Self::income_amount)
     }
 
     #[must_use]
@@ -383,6 +383,10 @@ impl Ledger {
             } => Some((*category_id, *amount)),
             Record::Income { .. } => None,
         })
+    }
+
+    fn income_amount(&self, id: CategoryId) -> i64 {
+        self.income_of(id) + self.saved_income_of(id)
     }
 
     fn saved_income_of(&self, id: CategoryId) -> i64 {
@@ -1513,6 +1517,39 @@ mod tests {
 
         assert_eq!(ledger.expense_total(groceries)?, 400);
         assert_eq!(ledger.expense_total(food)?, 400);
+        Ok(())
+    }
+
+    #[test]
+    fn child_income_counts_in_the_parent_total() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let account_id = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 0,
+        })?;
+        let salary = ledger.create_category(CreateCategory {
+            name: "Зарплата".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Income),
+        })?;
+        let bonus = ledger.create_category(CreateCategory {
+            name: "Премия".into(),
+            parent_id: Some(salary),
+            applicability: None,
+        })?;
+        ledger.add_income(NewIncome {
+            date: date(2026, 11, 22)?,
+            account_id: Some(account_id),
+            category_id: Some(bonus),
+            amount: Some(400),
+            comment: String::new(),
+        })?;
+
+        assert_eq!(ledger.income_total(bonus)?, 400);
+        assert_eq!(ledger.income_total(salary)?, 400);
         Ok(())
     }
 

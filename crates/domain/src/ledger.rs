@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 use crate::account::{Account, AccountId, CreateAccount, UpdateAccount};
 use crate::category::{Applicability, Category, CategoryId, CreateCategory, UpdateCategory};
 use crate::currency::Currency;
@@ -265,7 +267,7 @@ impl Ledger {
     /// Сумма увеличивает остаток счёта и входит в итог категории.
     pub fn add_income(&mut self, input: NewIncome) -> Result<(), DomainError> {
         let (account_id, category_id, amount) = complete_income(&input)?;
-        self.incomes.push(Income::new(
+        self.place_income(Income::new(
             input.date,
             account_id,
             category_id,
@@ -287,11 +289,11 @@ impl Ledger {
     }
 
     fn place_expense(&mut self, expense: Expense) {
-        let date = expense.date();
-        let index = self
-            .expenses
-            .partition_point(|existing| existing.date() <= date);
-        self.expenses.insert(index, expense);
+        place_on_date(&mut self.expenses, expense, Expense::date);
+    }
+
+    fn place_income(&mut self, income: Income) {
+        place_on_date(&mut self.incomes, income, Income::date);
     }
 
     fn prepare_category(&self, mut input: CreateCategory) -> Result<CreateCategory, DomainError> {
@@ -463,6 +465,12 @@ fn note_currency(seen: &mut Option<Currency>, currency: &Currency) -> Result<(),
         Some(_) => return Err(DomainError::MixedCurrencies),
     }
     Ok(())
+}
+
+fn place_on_date<T>(items: &mut Vec<T>, item: T, date_of: impl Fn(&T) -> SystemTime) {
+    let date = date_of(&item);
+    let index = items.partition_point(|existing| date_of(existing) <= date);
+    items.insert(index, item);
 }
 
 fn complete_income(input: &NewIncome) -> Result<(AccountId, CategoryId, i64), DomainError> {
@@ -1484,6 +1492,47 @@ mod tests {
         assert_eq!(expenses[1].comment(), "забытый");
         assert_eq!(expenses[2].date(), today);
         assert_eq!(expenses[2].amount(), 200);
+        Ok(())
+    }
+
+    #[test]
+    fn income_on_earlier_date_appends_to_that_day() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let account_id = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 10_000,
+        })?;
+        let category_id = ledger.create_category(CreateCategory {
+            name: "Зарплата".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Income),
+        })?;
+        let yesterday = date(2026, 11, 21)?;
+        let today = add_days(yesterday, 1)?;
+        let income = |date, amount, comment: &str| NewIncome {
+            date,
+            account_id: Some(account_id),
+            category_id: Some(category_id),
+            amount: Some(amount),
+            comment: comment.into(),
+        };
+
+        ledger.add_income(income(yesterday, 100, "вчера"))?;
+        ledger.add_income(income(today, 200, "сегодня"))?;
+        ledger.add_income(income(yesterday, 300, "забытый"))?;
+
+        let incomes = ledger.incomes();
+        assert_eq!(incomes.len(), 3);
+        assert_eq!(incomes[0].date(), yesterday);
+        assert_eq!(incomes[0].amount(), 100);
+        assert_eq!(incomes[1].date(), yesterday);
+        assert_eq!(incomes[1].amount(), 300);
+        assert_eq!(incomes[1].comment(), "забытый");
+        assert_eq!(incomes[2].date(), today);
+        assert_eq!(incomes[2].amount(), 200);
         Ok(())
     }
 

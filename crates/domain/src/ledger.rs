@@ -285,12 +285,14 @@ impl Ledger {
     /// В итоги категорий перевод не входит.
     pub fn add_transfer(&mut self, input: NewTransfer) -> Result<(), DomainError> {
         let (from_account_id, to_account_id, amount) = complete_transfer(&input)?;
+        let to_amount =
+            self.credited_amount(from_account_id, to_account_id, amount, input.to_amount)?;
         self.transfers.push(Transfer::new(
             input.date,
             from_account_id,
             to_account_id,
             amount,
-            amount,
+            to_amount,
             input.comment,
         ));
         #[rustfmt::skip]
@@ -298,7 +300,7 @@ impl Ledger {
             from_account_id,
             from_amount: amount,
             to_account_id,
-            to_amount: amount,
+            to_amount,
         });
         Ok(())
     }
@@ -317,6 +319,21 @@ impl Ledger {
     ) -> Result<TransferAmountFields, DomainError> {
         let _ = (from_account_id, to_account_id);
         todo!()
+    }
+
+    fn credited_amount(
+        &self,
+        from_account_id: AccountId,
+        to_account_id: AccountId,
+        amount: i64,
+        to_amount: Option<i64>,
+    ) -> Result<i64, DomainError> {
+        let same_currency =
+            self.account(from_account_id)?.currency() == self.account(to_account_id)?.currency();
+        if same_currency {
+            return Ok(amount);
+        }
+        Ok(to_amount.unwrap_or(amount))
     }
 
     fn place_expense(&mut self, expense: Expense) {
@@ -1968,6 +1985,39 @@ mod tests {
         assert_eq!(transfers[0].amount(), 5_000);
         assert_eq!(transfers[0].to_amount(), 5_000);
         assert_eq!(transfers[0].comment(), "на карман");
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_between_currencies_moves_each_amount() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let card = ledger.create_account(CreateAccount {
+            name: "Карта".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let dollars = ledger.create_account(CreateAccount {
+            name: "Доллары".into(),
+            currency: Currency::new("USD"),
+            opening_balance: 100,
+        })?;
+        let day = date(2026, 11, 22)?;
+
+        ledger.add_transfer(NewTransfer {
+            date: day,
+            from_account_id: Some(card),
+            to_account_id: Some(dollars),
+            amount: Some(7_500),
+            to_amount: Some(80),
+            comment: String::new(),
+        })?;
+
+        assert_eq!(ledger.balance(card)?, 12_500);
+        assert_eq!(ledger.balance(dollars)?, 180);
+        let transfers = ledger.transfers();
+        assert_eq!(transfers.len(), 1);
+        assert_eq!(transfers[0].amount(), 7_500);
+        assert_eq!(transfers[0].to_amount(), 80);
         Ok(())
     }
 }

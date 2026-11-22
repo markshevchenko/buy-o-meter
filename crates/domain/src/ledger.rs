@@ -203,6 +203,9 @@ impl Ledger {
     ) -> Result<(), DomainError> {
         let _ = transfer_to;
         self.find_category(id).ok_or(DomainError::CategoryNotFound)?;
+        if self.has_subcategories(id) {
+            return Err(DomainError::CategoryHasSubcategories);
+        }
         self.categories.retain(|category| category.id() != id);
         Ok(())
     }
@@ -2505,6 +2508,51 @@ mod tests {
                 .any(|category| category.id() == groceries)
         );
         assert_eq!(ledger.category(food)?.name(), "Питание");
+        Ok(())
+    }
+
+    #[test]
+    fn category_with_subcategories_stays_even_with_a_target() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let account_id = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 10_000,
+        })?;
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let groceries = ledger.create_category(CreateCategory {
+            name: "Продукты".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+        let transport = ledger.create_category(CreateCategory {
+            name: "Транспорт".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        ledger.add_expense(NewExpense {
+            date: date(2026, 11, 22)?,
+            account_id: Some(account_id),
+            category_id: Some(food),
+            amount: Some(300),
+            comment: String::new(),
+        })?;
+        let categories_before = ledger.categories().to_vec();
+        let expenses_before = ledger.expenses().to_vec();
+
+        let err = ledger.delete_category(food, Some(transport));
+
+        assert_eq!(err, Err(DomainError::CategoryHasSubcategories));
+        assert_eq!(ledger.categories(), categories_before.as_slice());
+        assert_eq!(ledger.expenses(), expenses_before.as_slice());
+        assert_eq!(ledger.category(groceries)?.parent_id(), Some(food));
+        assert_eq!(ledger.expense_total(food)?, 300);
         Ok(())
     }
 }

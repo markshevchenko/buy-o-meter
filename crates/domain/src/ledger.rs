@@ -290,7 +290,7 @@ impl Ledger {
         }
         let to_amount =
             self.credited_amount(from_account_id, to_account_id, amount, input.to_amount)?;
-        self.transfers.push(Transfer::new(
+        self.place_transfer(Transfer::new(
             input.date,
             from_account_id,
             to_account_id,
@@ -354,6 +354,10 @@ impl Ledger {
 
     fn place_income(&mut self, income: Income) {
         place_on_date(&mut self.incomes, income, Income::date);
+    }
+
+    fn place_transfer(&mut self, transfer: Transfer) {
+        place_on_date(&mut self.transfers, transfer, Transfer::date);
     }
 
     fn prepare_category(&self, mut input: CreateCategory) -> Result<CreateCategory, DomainError> {
@@ -2104,6 +2108,46 @@ mod tests {
         assert_eq!(ledger.transfers(), saved.as_slice());
         assert_eq!(ledger.balance(card)?, 20_100);
         assert_eq!(ledger.balance(cash)?, 900);
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_on_earlier_date_appends_to_that_day() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let card = ledger.create_account(CreateAccount {
+            name: "Карта".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 1_000,
+        })?;
+        let yesterday = date(2026, 11, 21)?;
+        let today = add_days(yesterday, 1)?;
+        let transfer = |date, amount, comment: &str| NewTransfer {
+            date,
+            from_account_id: Some(card),
+            to_account_id: Some(cash),
+            amount: Some(amount),
+            to_amount: None,
+            comment: comment.into(),
+        };
+
+        ledger.add_transfer(transfer(yesterday, 100, "вчера"))?;
+        ledger.add_transfer(transfer(today, 200, "сегодня"))?;
+        ledger.add_transfer(transfer(yesterday, 300, "забытый"))?;
+
+        let transfers = ledger.transfers();
+        assert_eq!(transfers.len(), 3);
+        assert_eq!(transfers[0].date(), yesterday);
+        assert_eq!(transfers[0].amount(), 100);
+        assert_eq!(transfers[1].date(), yesterday);
+        assert_eq!(transfers[1].amount(), 300);
+        assert_eq!(transfers[1].comment(), "забытый");
+        assert_eq!(transfers[2].date(), today);
+        assert_eq!(transfers[2].amount(), 200);
         Ok(())
     }
 }

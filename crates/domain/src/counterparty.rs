@@ -37,7 +37,6 @@ impl Counterparty {
     }
 }
 
-/// Сальдо по одному имени и одной валюте. Сумма всегда больше нуля.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Debt {
     counterparty_name: String,

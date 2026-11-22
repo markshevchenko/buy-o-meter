@@ -311,8 +311,12 @@ pub struct NewLend {
 impl NewLend {
     #[must_use]
     pub fn open(clock: &impl Clock) -> Self {
-        let _ = clock;
-        todo!()
+        Self {
+            date: clock.today(),
+            account_id: None,
+            counterparty: None,
+            amount: None,
+        }
     }
 }
 
@@ -357,8 +361,12 @@ pub struct NewBorrow {
 impl NewBorrow {
     #[must_use]
     pub fn open(clock: &impl Clock) -> Self {
-        let _ = clock;
-        todo!()
+        Self {
+            date: clock.today(),
+            account_id: None,
+            counterparty: None,
+            amount: None,
+        }
     }
 }
 
@@ -398,7 +406,7 @@ mod tests {
     use crate::date;
     use crate::error::DomainError;
 
-    use super::{NewExpense, NewIncome, NewTransfer};
+    use super::{NewBorrow, NewExpense, NewIncome, NewLend, NewTransfer};
 
     #[test]
     fn open_sets_today_and_leaves_fields_empty() -> Result<(), DomainError> {
@@ -437,6 +445,30 @@ mod tests {
         assert_eq!(form.amount, None);
         assert_eq!(form.to_amount, None);
         assert_eq!(form.comment, "");
+        Ok(())
+    }
+
+    #[test]
+    fn open_lend_sets_today_and_leaves_fields_empty() -> Result<(), DomainError> {
+        let today = date(2026, 11, 22)?;
+        let form = NewLend::open(&FixedClock::new(today));
+
+        assert_eq!(form.date, today);
+        assert_eq!(form.account_id, None);
+        assert_eq!(form.counterparty, None);
+        assert_eq!(form.amount, None);
+        Ok(())
+    }
+
+    #[test]
+    fn open_borrow_sets_today_and_leaves_fields_empty() -> Result<(), DomainError> {
+        let today = date(2026, 11, 22)?;
+        let form = NewBorrow::open(&FixedClock::new(today));
+
+        assert_eq!(form.date, today);
+        assert_eq!(form.account_id, None);
+        assert_eq!(form.counterparty, None);
+        assert_eq!(form.amount, None);
         Ok(())
     }
 }

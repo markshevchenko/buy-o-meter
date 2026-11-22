@@ -243,6 +243,24 @@ pub struct Transfer {
 }
 
 impl Transfer {
+    pub(crate) fn new(
+        date: SystemTime,
+        from_account_id: AccountId,
+        to_account_id: AccountId,
+        amount: i64,
+        to_amount: i64,
+        comment: String,
+    ) -> Self {
+        Self {
+            date,
+            from_account_id,
+            to_account_id,
+            amount,
+            to_amount,
+            comment,
+        }
+    }
+
     #[must_use]
     pub fn date(&self) -> SystemTime {
         self.date

@@ -21,6 +21,7 @@ pub struct Ledger {
     records: Vec<Record>,
     expenses: Vec<Expense>,
     incomes: Vec<Income>,
+    transfers: Vec<Transfer>,
 }
 
 impl Ledger {
@@ -36,6 +37,7 @@ impl Ledger {
             records: Vec::new(),
             expenses: Vec::new(),
             incomes: Vec::new(),
+            transfers: Vec::new(),
         }
     }
 
@@ -282,14 +284,29 @@ impl Ledger {
     /// Один и тот же счёт — `DomainError::SameAccount`, список не меняется.
     /// В итоги категорий перевод не входит.
     pub fn add_transfer(&mut self, input: NewTransfer) -> Result<(), DomainError> {
-        let _ = input;
-        todo!()
+        let (from_account_id, to_account_id, amount) = complete_transfer(&input)?;
+        self.transfers.push(Transfer::new(
+            input.date,
+            from_account_id,
+            to_account_id,
+            amount,
+            amount,
+            input.comment,
+        ));
+        #[rustfmt::skip]
+        self.operations.push(OperationDraft::Transfer {
+            from_account_id,
+            from_amount: amount,
+            to_account_id,
+            to_amount: amount,
+        });
+        Ok(())
     }
 
     /// По дате, внутри дня в порядке добавления.
     #[must_use]
     pub fn transfers(&self) -> &[Transfer] {
-        todo!()
+        &self.transfers
     }
 
     /// `One`, если валюты счетов совпадают, иначе `Two`.
@@ -529,6 +546,15 @@ fn place_on_date<T>(items: &mut Vec<T>, item: T, date_of: impl Fn(&T) -> SystemT
     let date = date_of(&item);
     let index = items.partition_point(|existing| date_of(existing) <= date);
     items.insert(index, item);
+}
+
+fn complete_transfer(input: &NewTransfer) -> Result<(AccountId, AccountId, i64), DomainError> {
+    match (input.from_account_id, input.to_account_id, input.amount) {
+        (Some(from_account_id), Some(to_account_id), Some(amount)) => {
+            Ok((from_account_id, to_account_id, amount))
+        }
+        _ => Err(DomainError::AccountNotFound),
+    }
 }
 
 fn complete_income(input: &NewIncome) -> Result<(AccountId, CategoryId, i64), DomainError> {
@@ -1905,6 +1931,43 @@ mod tests {
         });
         assert_eq!(err, Err(DomainError::AccountRequired));
         assert!(ledger.expenses().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_within_one_currency_moves_the_amount() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let card = ledger.create_account(CreateAccount {
+            name: "Карта".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 1_000,
+        })?;
+        let day = date(2026, 11, 22)?;
+
+        ledger.add_transfer(NewTransfer {
+            date: day,
+            from_account_id: Some(card),
+            to_account_id: Some(cash),
+            amount: Some(5_000),
+            to_amount: None,
+            comment: "на карман".into(),
+        })?;
+
+        assert_eq!(ledger.balance(card)?, 15_000);
+        assert_eq!(ledger.balance(cash)?, 6_000);
+        let transfers = ledger.transfers();
+        assert_eq!(transfers.len(), 1);
+        assert_eq!(transfers[0].date(), day);
+        assert_eq!(transfers[0].from_account_id(), card);
+        assert_eq!(transfers[0].to_account_id(), cash);
+        assert_eq!(transfers[0].amount(), 5_000);
+        assert_eq!(transfers[0].to_amount(), 5_000);
+        assert_eq!(transfers[0].comment(), "на карман");
         Ok(())
     }
 }

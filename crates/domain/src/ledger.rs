@@ -211,7 +211,7 @@ impl Ledger {
     /// Сумма уменьшает остаток счёта и входит в итог категории.
     pub fn add_expense(&mut self, input: NewExpense) -> Result<(), DomainError> {
         let (account_id, category_id, amount) = complete_expense(&input)?;
-        self.ensure_expense_targets(account_id, category_id)?;
+        self.ensure_account_and_category(account_id, category_id)?;
         self.place_expense(Expense::new(
             input.date,
             account_id,
@@ -227,7 +227,7 @@ impl Ledger {
         Ok(())
     }
 
-    fn ensure_expense_targets(
+    fn ensure_account_and_category(
         &self,
         account_id: AccountId,
         category_id: CategoryId,
@@ -254,6 +254,7 @@ impl Ledger {
     /// Сумма увеличивает остаток счёта и входит в итог категории.
     pub fn add_income(&mut self, input: NewIncome) -> Result<(), DomainError> {
         let (account_id, category_id, amount) = complete_income(&input)?;
+        self.ensure_account_and_category(account_id, category_id)?;
         self.place_income(Income::new(
             input.date,
             account_id,
@@ -1735,6 +1736,36 @@ mod tests {
         assert_eq!(unknown_category, Err(DomainError::CategoryNotFound));
         assert!(ledger.expenses().is_empty());
         assert_eq!(ledger.expense_total(category_id)?, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn income_with_unknown_account_or_category_is_rejected() -> Result<(), DomainError> {
+        use crate::account::AccountId;
+        use crate::category::CategoryId;
+
+        let (mut ledger, account_id, category_id) = ledger_with_cash_and_salary()?;
+        let unknown_account = ledger.add_income(NewIncome {
+            date: date(2026, 11, 22)?,
+            account_id: Some(AccountId::from_u64(99)),
+            category_id: Some(category_id),
+            amount: Some(100),
+            comment: String::new(),
+        });
+        assert_eq!(unknown_account, Err(DomainError::AccountNotFound));
+        assert!(ledger.incomes().is_empty());
+        assert_eq!(ledger.balance(account_id)?, 10_000);
+
+        let unknown_category = ledger.add_income(NewIncome {
+            date: date(2026, 11, 22)?,
+            account_id: Some(account_id),
+            category_id: Some(CategoryId::from_u64(99)),
+            amount: Some(100),
+            comment: String::new(),
+        });
+        assert_eq!(unknown_category, Err(DomainError::CategoryNotFound));
+        assert!(ledger.incomes().is_empty());
+        assert_eq!(ledger.income_total(category_id)?, 0);
         Ok(())
     }
 

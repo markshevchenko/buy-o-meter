@@ -1,3 +1,11 @@
+/// Какие обязательные поля расхода не заполнены.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MissingFields {
+    pub account: bool,
+    pub category: bool,
+    pub amount: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainError {
     AccountNotFound,
@@ -6,4 +14,5 @@ pub enum DomainError {
     CategoryNotFound,
     ApplicabilityRequired,
     CategoryTooDeep,
+    MissingFields(MissingFields),
 }

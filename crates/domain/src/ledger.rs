@@ -1,7 +1,7 @@
 use crate::account::{Account, AccountId, CreateAccount, UpdateAccount};
 use crate::category::{Applicability, Category, CategoryId, CreateCategory, UpdateCategory};
 use crate::error::DomainError;
-use crate::operation::{OperationDraft, Record, RepaymentDirection};
+use crate::operation::{Expense, NewExpense, OperationDraft, Record, RepaymentDirection};
 use crate::starter::{EXPENSE_TREE, INCOME_TREE, StarterGroup};
 
 #[derive(Debug)]
@@ -196,6 +196,20 @@ impl Ledger {
         }
         self.operations.push(draft);
         Ok(())
+    }
+
+    /// Сохраняет расход.
+    /// Пустые счёт, категория или сумма — `DomainError::MissingFields`, список не меняется.
+    /// Сумма уменьшает остаток счёта и входит в итог категории.
+    pub fn add_expense(&mut self, input: NewExpense) -> Result<(), DomainError> {
+        let _ = input;
+        todo!()
+    }
+
+    /// Сохранённые расходы: по дате, внутри дня по номеру.
+    #[must_use]
+    pub fn expenses(&self) -> &[Expense] {
+        todo!()
     }
 
     fn prepare_category(&self, mut input: CreateCategory) -> Result<CreateCategory, DomainError> {

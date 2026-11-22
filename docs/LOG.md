@@ -364,6 +364,7 @@
 
 **Сделано:**
 - Ветка `issue-11-debt-repayment`, PR [#26](https://github.com/markshevchenko/buy-o-meter/pull/26). Восемь приёмочных тестов 011, `scripts/check.sh` зелёный. Ревью замечаний не нашло.
+- GitHub Actions `check` зелёный за 32 секунды: [прогон](https://github.com/markshevchenko/buy-o-meter/actions/runs/45066619401).
 - В приёмочном файле `rustfmt` добавил перевод строки в конце. Утверждения не менялись.
 
 **Что не получилось с первого раза:**

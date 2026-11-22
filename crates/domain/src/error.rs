@@ -14,4 +14,5 @@ pub enum DomainError {
     ApplicabilityRequired,
     CategoryTooDeep,
     MissingFields(MissingFields),
+    MixedCurrencies,
 }

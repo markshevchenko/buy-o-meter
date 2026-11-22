@@ -1,5 +1,6 @@
 use crate::account::{Account, AccountId, CreateAccount, UpdateAccount};
 use crate::category::{Applicability, Category, CategoryId, CreateCategory, UpdateCategory};
+use crate::currency::Currency;
 use crate::error::{DomainError, MissingFields};
 use crate::operation::{Expense, NewExpense, OperationDraft, Record, RepaymentDirection};
 use crate::starter::{EXPENSE_TREE, INCOME_TREE, StarterGroup};
@@ -171,7 +172,20 @@ impl Ledger {
     }
 
     pub fn expense_total(&self, id: CategoryId) -> Result<i64, DomainError> {
-        self.rolled_total(id, Self::expense_of)
+        self.find_category(id)
+            .ok_or(DomainError::CategoryNotFound)?;
+        let mut currency = None;
+        let mut total = self.expense_slice(id, &mut currency)?;
+        let children: Vec<CategoryId> = self
+            .categories
+            .iter()
+            .filter(|category| category.parent_id() == Some(id))
+            .map(|category| category.id())
+            .collect();
+        for child in children {
+            total += self.expense_slice(child, &mut currency)?;
+        }
+        Ok(total)
     }
 
     pub fn income_total(&self, id: CategoryId) -> Result<i64, DomainError> {
@@ -204,6 +218,7 @@ impl Ledger {
     /// Сумма уменьшает остаток счёта и входит в итог категории.
     pub fn add_expense(&mut self, input: NewExpense) -> Result<(), DomainError> {
         let (account_id, category_id, amount) = complete_expense(&input)?;
+        self.ensure_expense_targets(account_id, category_id)?;
         self.place_expense(Expense::new(
             input.date,
             account_id,
@@ -216,10 +231,23 @@ impl Ledger {
             account_id,
             amount,
         });
-        self.records.push(Record::Expense {
-            category_id,
-            amount,
-        });
+        Ok(())
+    }
+
+    fn ensure_expense_targets(
+        &self,
+        account_id: AccountId,
+        category_id: CategoryId,
+    ) -> Result<(), DomainError> {
+        if self.accounts.is_empty() {
+            return Err(DomainError::AccountRequired);
+        }
+        if self.find_account(account_id).is_none() {
+            return Err(DomainError::AccountNotFound);
+        }
+        if self.find_category(category_id).is_none() {
+            return Err(DomainError::CategoryNotFound);
+        }
         Ok(())
     }
 
@@ -299,6 +327,25 @@ impl Ledger {
             .collect()
     }
 
+    fn expense_slice(
+        &self,
+        id: CategoryId,
+        currency: &mut Option<Currency>,
+    ) -> Result<i64, DomainError> {
+        let mut total = self.expense_of(id);
+        for expense in &self.expenses {
+            if expense.category_id() != id {
+                continue;
+            }
+            let account = self
+                .find_account(expense.account_id())
+                .ok_or(DomainError::AccountNotFound)?;
+            note_currency(currency, account.currency())?;
+            total += expense.amount();
+        }
+        Ok(total)
+    }
+
     fn expense_of(&self, id: CategoryId) -> i64 {
         self.sum_of(id, |record| match record {
             Record::Expense {
@@ -349,7 +396,7 @@ impl Ledger {
     fn ensure_currency_change_allowed(
         &self,
         id: AccountId,
-        new_currency: &crate::currency::Currency,
+        new_currency: &Currency,
     ) -> Result<(), DomainError> {
         let account = self.find_account(id).ok_or(DomainError::AccountNotFound)?;
         if account.currency() == new_currency {
@@ -366,6 +413,15 @@ impl Ledger {
             .iter()
             .any(|operation| operation_touches_account(operation, id))
     }
+}
+
+fn note_currency(seen: &mut Option<Currency>, currency: &Currency) -> Result<(), DomainError> {
+    match seen {
+        None => *seen = Some(currency.clone()),
+        Some(existing) if existing == currency => {}
+        Some(_) => return Err(DomainError::MixedCurrencies),
+    }
+    Ok(())
 }
 
 fn complete_expense(input: &NewExpense) -> Result<(AccountId, CategoryId, i64), DomainError> {
@@ -1310,5 +1366,136 @@ mod tests {
         assert_eq!(expenses[2].date(), today);
         assert_eq!(expenses[2].amount(), 200);
         Ok(())
+    }
+
+    #[test]
+    fn child_expense_counts_in_the_parent_total() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+        use std::time::SystemTime;
+
+        let mut ledger = Ledger::new();
+        let account_id = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 0,
+        })?;
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let groceries = ledger.create_category(CreateCategory {
+            name: "Продукты".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+        ledger.add_expense(NewExpense {
+            date: SystemTime::UNIX_EPOCH,
+            account_id: Some(account_id),
+            category_id: Some(groceries),
+            amount: Some(400),
+            comment: String::new(),
+        })?;
+
+        assert_eq!(ledger.expense_total(groceries)?, 400);
+        assert_eq!(ledger.expense_total(food)?, 400);
+        Ok(())
+    }
+
+    #[test]
+    fn expense_total_rejects_mixed_currencies() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+        use std::time::SystemTime;
+
+        let mut ledger = Ledger::new();
+        let rub = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 0,
+        })?;
+        let usd = ledger.create_account(CreateAccount {
+            name: "Доллары".into(),
+            currency: Currency::new("USD"),
+            opening_balance: 0,
+        })?;
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        ledger.add_expense(NewExpense {
+            date: SystemTime::UNIX_EPOCH,
+            account_id: Some(rub),
+            category_id: Some(food),
+            amount: Some(1_000),
+            comment: String::new(),
+        })?;
+        ledger.add_expense(NewExpense {
+            date: SystemTime::UNIX_EPOCH,
+            account_id: Some(usd),
+            category_id: Some(food),
+            amount: Some(15),
+            comment: String::new(),
+        })?;
+
+        assert_eq!(ledger.expenses().len(), 2);
+        assert_eq!(ledger.balance(rub)?, -1_000);
+        assert_eq!(ledger.balance(usd)?, -15);
+        assert_eq!(
+            ledger.expense_total(food),
+            Err(DomainError::MixedCurrencies)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn expense_with_unknown_account_or_category_is_rejected() -> Result<(), DomainError> {
+        use std::time::SystemTime;
+
+        use crate::account::AccountId;
+        use crate::category::CategoryId;
+
+        let (mut ledger, account_id, category_id) = ledger_with_cash_and_groceries()?;
+        let unknown_account = ledger.add_expense(NewExpense {
+            date: SystemTime::UNIX_EPOCH,
+            account_id: Some(AccountId::from_u64(99)),
+            category_id: Some(category_id),
+            amount: Some(100),
+            comment: String::new(),
+        });
+        assert_eq!(unknown_account, Err(DomainError::AccountNotFound));
+        assert!(ledger.expenses().is_empty());
+        assert_eq!(ledger.balance(account_id)?, 10_000);
+
+        let unknown_category = ledger.add_expense(NewExpense {
+            date: SystemTime::UNIX_EPOCH,
+            account_id: Some(account_id),
+            category_id: Some(CategoryId::from_u64(99)),
+            amount: Some(100),
+            comment: String::new(),
+        });
+        assert_eq!(unknown_category, Err(DomainError::CategoryNotFound));
+        assert!(ledger.expenses().is_empty());
+        assert_eq!(ledger.expense_total(category_id)?, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn expense_without_any_account_is_rejected() {
+        use std::time::SystemTime;
+
+        use crate::account::AccountId;
+        use crate::category::CategoryId;
+
+        let mut ledger = Ledger::new();
+        let err = ledger.add_expense(NewExpense {
+            date: SystemTime::UNIX_EPOCH,
+            account_id: Some(AccountId::from_u64(1)),
+            category_id: Some(CategoryId::from_u64(1)),
+            amount: Some(1),
+            comment: String::new(),
+        });
+        assert_eq!(err, Err(DomainError::AccountRequired));
+        assert!(ledger.expenses().is_empty());
     }
 }

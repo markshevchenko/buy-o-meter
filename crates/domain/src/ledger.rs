@@ -11,6 +11,7 @@ pub struct Ledger {
     operations: Vec<OperationDraft>,
     next_category_id: u64,
     categories: Vec<Category>,
+    starter_seeded: bool,
     records: Vec<Record>,
 }
 
@@ -23,6 +24,7 @@ impl Ledger {
             operations: Vec::new(),
             next_category_id: 1,
             categories: Vec::new(),
+            starter_seeded: false,
             records: Vec::new(),
         }
     }
@@ -69,6 +71,10 @@ impl Ledger {
     /// Создаёт стартовый набор категорий один раз.
     /// Повторный вызов не добавляет категории и не откатывает правки.
     pub fn seed_starter_categories(&mut self) {
+        if self.starter_seeded {
+            return;
+        }
+        self.starter_seeded = true;
         self.seed_tree(EXPENSE_TREE, Applicability::Expense);
         self.seed_tree(INCOME_TREE, Applicability::Income);
     }
@@ -932,6 +938,36 @@ mod tests {
             Applicability::Income,
         );
         assert_eq!(index, ledger.categories().len());
+    }
+
+    #[test]
+    fn seed_starter_categories_again_keeps_edits() -> Result<(), DomainError> {
+        use crate::category::{Applicability, CreateCategory, UpdateCategory};
+
+        let mut ledger = Ledger::new();
+        ledger.seed_starter_categories();
+
+        let housing = ledger.categories()[0].id();
+        ledger.update_category(
+            housing,
+            UpdateCategory {
+                name: Some("Дом".into()),
+                applicability: Some(Applicability::Both),
+            },
+        )?;
+        let custom = ledger.create_category(CreateCategory {
+            name: "Свои траты".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+
+        let configured = ledger.categories().to_vec();
+        ledger.seed_starter_categories();
+
+        assert_eq!(ledger.categories(), configured.as_slice());
+        assert_eq!(ledger.category(housing)?.name(), "Дом");
+        assert_eq!(ledger.category(custom)?.name(), "Свои траты");
+        Ok(())
     }
 
     fn place_expected(

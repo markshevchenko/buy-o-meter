@@ -15,4 +15,5 @@ pub enum DomainError {
     CategoryTooDeep,
     MissingFields(MissingFields),
     MixedCurrencies,
+    InvalidDate,
 }

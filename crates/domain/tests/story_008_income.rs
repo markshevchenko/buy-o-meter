@@ -1,13 +1,7 @@
-use std::time::{Duration, SystemTime};
-
 use domain::{
     AccountId, Applicability, CategoryId, CreateAccount, CreateCategory, Currency, DomainError,
-    FixedClock, Ledger, MissingFields, NewIncome,
+    FixedClock, Ledger, MissingFields, NewIncome, date,
 };
-
-fn midnight(days_after_epoch: u64) -> SystemTime {
-    SystemTime::UNIX_EPOCH + Duration::from_secs(days_after_epoch * 24 * 60 * 60)
-}
 
 fn create_account(
     ledger: &mut Ledger,
@@ -50,7 +44,7 @@ fn create_child(
 // 008 «Поля»
 #[test]
 fn new_income_opens_with_today_and_empty_fields() -> Result<(), DomainError> {
-    let today = midnight(0);
+    let today = date(2026, 11, 22)?;
     let form = NewIncome::open(&FixedClock::new(today));
 
     assert_eq!(form.date, today);
@@ -61,39 +55,63 @@ fn new_income_opens_with_today_and_empty_fields() -> Result<(), DomainError> {
     Ok(())
 }
 
-// 008 «Выбор категории»
-#[test]
-fn income_categories_include_income_and_both_and_accept_parent_or_child() -> Result<(), DomainError>
-{
-    let mut ledger = Ledger::new();
-    let account_id = create_account(&mut ledger, "Наличные", "RUB", 10_000)?;
-    let salary = create_top(&mut ledger, "Зарплата", Applicability::Income)?;
-    let bonus = create_child(&mut ledger, "Премия", salary, None)?;
-    let deduction = create_child(
-        &mut ledger,
-        "Удержание",
-        salary,
-        Some(Applicability::Expense),
-    )?;
-    let gifts = create_top(&mut ledger, "Подарки", Applicability::Both)?;
-    let food = create_top(&mut ledger, "Питание", Applicability::Expense)?;
+struct IncomeChoice {
+    account_id: AccountId,
+    salary: CategoryId,
+    bonus: CategoryId,
+    deduction: CategoryId,
+    gifts: CategoryId,
+    food: CategoryId,
+}
 
+fn income_choice(ledger: &mut Ledger) -> Result<IncomeChoice, DomainError> {
+    let account_id = create_account(ledger, "Наличные", "RUB", 10_000)?;
+    let salary = create_top(ledger, "Зарплата", Applicability::Income)?;
+    let bonus = create_child(ledger, "Премия", salary, None)?;
+    let deduction = create_child(ledger, "Удержание", salary, Some(Applicability::Expense))?;
+    let gifts = create_top(ledger, "Подарки", Applicability::Both)?;
+    let food = create_top(ledger, "Питание", Applicability::Expense)?;
+    Ok(IncomeChoice {
+        account_id,
+        salary,
+        bonus,
+        deduction,
+        gifts,
+        food,
+    })
+}
+
+fn assert_offered_income_categories(
+    ledger: &Ledger,
+    choice: &IncomeChoice,
+) -> Result<(), DomainError> {
     assert_eq!(
-        ledger.category(bonus)?.applicability(),
+        ledger.category(choice.bonus)?.applicability(),
         Applicability::Income
     );
     assert_eq!(
-        ledger.category(deduction)?.applicability(),
+        ledger.category(choice.deduction)?.applicability(),
         Applicability::Expense
     );
-    assert_eq!(ledger.category(bonus)?.parent_id(), Some(salary));
+    assert_eq!(
+        ledger.category(choice.bonus)?.parent_id(),
+        Some(choice.salary)
+    );
 
     let offered = ledger.categories_for_income();
-    assert!(offered.iter().any(|category| category.id() == salary));
-    assert!(offered.iter().any(|category| category.id() == bonus));
-    assert!(offered.iter().any(|category| category.id() == gifts));
-    assert!(offered.iter().all(|category| category.id() != food));
-    assert!(offered.iter().all(|category| category.id() != deduction));
+    assert!(
+        offered
+            .iter()
+            .any(|category| category.id() == choice.salary)
+    );
+    assert!(offered.iter().any(|category| category.id() == choice.bonus));
+    assert!(offered.iter().any(|category| category.id() == choice.gifts));
+    assert!(offered.iter().all(|category| category.id() != choice.food));
+    assert!(
+        offered
+            .iter()
+            .all(|category| category.id() != choice.deduction)
+    );
     assert!(offered.iter().all(|category| {
         matches!(
             category.applicability(),
@@ -103,36 +121,53 @@ fn income_categories_include_income_and_both_and_accept_parent_or_child() -> Res
     assert_eq!(
         offered
             .iter()
-            .find(|category| category.id() == bonus)
+            .find(|category| category.id() == choice.bonus)
             .map(|category| category.parent_id()),
-        Some(Some(salary))
+        Some(Some(choice.salary))
     );
+    Ok(())
+}
 
+fn assert_income_on_parent_and_child(
+    ledger: &mut Ledger,
+    choice: &IncomeChoice,
+) -> Result<(), DomainError> {
+    let today = date(2026, 11, 22)?;
     ledger.add_income(NewIncome {
-        date: midnight(0),
-        account_id: Some(account_id),
-        category_id: Some(bonus),
+        date: today,
+        account_id: Some(choice.account_id),
+        category_id: Some(choice.bonus),
         amount: Some(500),
         comment: String::new(),
     })?;
     ledger.add_income(NewIncome {
-        date: midnight(0),
-        account_id: Some(account_id),
-        category_id: Some(salary),
+        date: today,
+        account_id: Some(choice.account_id),
+        category_id: Some(choice.salary),
         amount: Some(1_000),
         comment: String::new(),
     })?;
 
     let incomes = ledger.incomes();
     assert_eq!(incomes.len(), 2);
-    assert_eq!(incomes[0].category_id(), bonus);
+    assert_eq!(incomes[0].category_id(), choice.bonus);
     assert_eq!(incomes[0].amount(), 500);
-    assert_eq!(incomes[1].category_id(), salary);
-    assert_ne!(incomes[1].category_id(), bonus);
+    assert_eq!(incomes[1].category_id(), choice.salary);
+    assert_ne!(incomes[1].category_id(), choice.bonus);
     assert_eq!(incomes[1].amount(), 1_000);
-    assert_eq!(ledger.income_total(bonus)?, 500);
-    assert_eq!(ledger.income_total(salary)?, 1_500);
+    assert_eq!(ledger.income_total(choice.bonus)?, 500);
+    assert_eq!(ledger.income_total(choice.salary)?, 1_500);
     Ok(())
+}
+
+// 008 «Выбор категории»
+#[test]
+fn income_categories_include_income_and_both_and_accept_parent_or_child() -> Result<(), DomainError>
+{
+    let mut ledger = Ledger::new();
+    let choice = income_choice(&mut ledger)?;
+    assert_offered_income_categories(&ledger, &choice)?;
+    assert_income_on_parent_and_child(&mut ledger, &choice)
 }
 
 // 008 «Сохранение»
@@ -141,7 +176,7 @@ fn saving_incomes_assigns_day_numbers_and_increases_balance() -> Result<(), Doma
     let mut ledger = Ledger::new();
     let account_id = create_account(&mut ledger, "Наличные", "RUB", 10_000)?;
     let category_id = create_top(&mut ledger, "Зарплата", Applicability::Income)?;
-    let date = midnight(0);
+    let date = date(2026, 11, 22)?;
 
     ledger.add_income(NewIncome {
         date,
@@ -174,7 +209,7 @@ fn income_missing_account_category_or_amount_is_rejected() -> Result<(), DomainE
     let mut ledger = Ledger::new();
     let account_id = create_account(&mut ledger, "Наличные", "RUB", 10_000)?;
     let category_id = create_top(&mut ledger, "Зарплата", Applicability::Income)?;
-    let date = midnight(0);
+    let date = date(2026, 11, 22)?;
 
     let missing_account = ledger.add_income(NewIncome {
         date,

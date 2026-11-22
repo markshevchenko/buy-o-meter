@@ -65,6 +65,12 @@ impl Ledger {
         Ok(())
     }
 
+    /// Создаёт стартовый набор категорий один раз.
+    /// Повторный вызов не добавляет категории и не откатывает правки.
+    pub fn seed_starter_categories(&mut self) {
+        todo!()
+    }
+
     pub fn create_category(&mut self, input: CreateCategory) -> Result<CategoryId, DomainError> {
         let input = self.prepare_category(input)?;
         let id = CategoryId::from_u64(self.next_category_id);

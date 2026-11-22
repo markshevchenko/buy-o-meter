@@ -1,4 +1,5 @@
 use crate::account::AccountId;
+use crate::category::CategoryId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RepaymentDirection {
@@ -34,5 +35,19 @@ pub enum OperationDraft {
         account_id: AccountId,
         amount: i64,
         direction: RepaymentDirection,
+    },
+}
+
+/// Расход или доход по категории. Название категории в запись не копируется.
+/// Дата, счёт и комментарий появятся в историях ввода расхода и дохода.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Record {
+    Expense {
+        category_id: CategoryId,
+        amount: i64,
+    },
+    Income {
+        category_id: CategoryId,
+        amount: i64,
     },
 }

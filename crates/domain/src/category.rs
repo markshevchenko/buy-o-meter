@@ -22,13 +22,6 @@ pub enum Applicability {
     Both,
 }
 
-/// Вид операции, для которого выбирают категорию: расход или доход.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EntryKind {
-    Expense,
-    Income,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Category {
     id: CategoryId,
@@ -96,13 +89,4 @@ pub struct CreateCategory {
 pub struct UpdateCategory {
     pub name: Option<String>,
     pub applicability: Option<Applicability>,
-}
-
-/// Сумма, отнесённая к категории. Имя категории в сумму не копируется.
-/// Полная операция (дата, счёт, комментарий) появится в историях ввода.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CategoryAmount {
-    pub category_id: CategoryId,
-    pub kind: EntryKind,
-    pub amount: i64,
 }

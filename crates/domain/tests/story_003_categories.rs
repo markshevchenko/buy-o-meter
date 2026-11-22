@@ -1,6 +1,5 @@
 use domain::{
-    Applicability, CategoryAmount, CategoryId, CreateCategory, DomainError, EntryKind, Ledger,
-    UpdateCategory,
+    Applicability, CategoryId, CreateCategory, DomainError, Ledger, Record, UpdateCategory,
 };
 
 fn create_top(
@@ -28,22 +27,38 @@ fn create_child(
     })
 }
 
-fn add_amount(
+fn add_expense(
     ledger: &mut Ledger,
     category_id: CategoryId,
-    kind: EntryKind,
     amount: i64,
 ) -> Result<(), DomainError> {
-    ledger.add_category_amount(CategoryAmount {
+    ledger.add_record(Record::Expense {
         category_id,
-        kind,
         amount,
     })
 }
 
-fn offers(ledger: &Ledger, kind: EntryKind, id: CategoryId) -> bool {
+fn add_income(
+    ledger: &mut Ledger,
+    category_id: CategoryId,
+    amount: i64,
+) -> Result<(), DomainError> {
+    ledger.add_record(Record::Income {
+        category_id,
+        amount,
+    })
+}
+
+fn offered_for_expense(ledger: &Ledger, id: CategoryId) -> bool {
     ledger
-        .categories_for(kind)
+        .categories_for_expense()
+        .iter()
+        .any(|category| category.id() == id)
+}
+
+fn offered_for_income(ledger: &Ledger, id: CategoryId) -> bool {
+    ledger
+        .categories_for_income()
         .iter()
         .any(|category| category.id() == id)
 }
@@ -119,7 +134,7 @@ fn adding_subcategory_to_a_subcategory_is_rejected() -> Result<(), DomainError> 
 fn renaming_category_shows_new_name_for_existing_amounts() -> Result<(), DomainError> {
     let mut ledger = Ledger::new();
     let id = create_top(&mut ledger, "Кафе", Applicability::Expense)?;
-    add_amount(&mut ledger, id, EntryKind::Expense, 450)?;
+    add_expense(&mut ledger, id, 450)?;
     assert_eq!(ledger.category(id)?.name(), "Кафе");
 
     ledger.update_category(
@@ -133,10 +148,9 @@ fn renaming_category_shows_new_name_for_existing_amounts() -> Result<(), DomainE
     assert_eq!(ledger.category(id)?.name(), "Кофейни");
     assert_eq!(ledger.category(id)?.applicability(), Applicability::Expense);
     assert_eq!(
-        ledger.category_amounts(),
-        &[CategoryAmount {
+        ledger.records(),
+        &[Record::Expense {
             category_id: id,
-            kind: EntryKind::Expense,
             amount: 450,
         }]
     );
@@ -150,23 +164,22 @@ fn moving_subcategory_counts_its_amounts_in_the_new_parent() -> Result<(), Domai
     let food = create_top(&mut ledger, "Питание", Applicability::Expense)?;
     let lunches = create_child(&mut ledger, "Обеды в городе", food, None)?;
     let leisure = create_top(&mut ledger, "Досуг", Applicability::Expense)?;
-    add_amount(&mut ledger, lunches, EntryKind::Expense, 1_500)?;
+    add_expense(&mut ledger, lunches, 1_500)?;
 
     assert_eq!(ledger.category(lunches)?.parent_id(), Some(food));
     assert_eq!(ledger.category(leisure)?.parent_id(), None);
-    assert_eq!(ledger.category_total(food, EntryKind::Expense)?, 1_500);
+    assert_eq!(ledger.expense_total(food)?, 1_500);
 
     ledger.move_category(lunches, leisure)?;
 
     assert_eq!(ledger.category(lunches)?.parent_id(), Some(leisure));
-    assert_eq!(ledger.category_total(lunches, EntryKind::Expense)?, 1_500);
-    assert_eq!(ledger.category_total(leisure, EntryKind::Expense)?, 1_500);
-    assert_eq!(ledger.category_total(food, EntryKind::Expense)?, 0);
+    assert_eq!(ledger.expense_total(lunches)?, 1_500);
+    assert_eq!(ledger.expense_total(leisure)?, 1_500);
+    assert_eq!(ledger.expense_total(food)?, 0);
     assert_eq!(
-        ledger.category_amounts(),
-        &[CategoryAmount {
+        ledger.records(),
+        &[Record::Expense {
             category_id: lunches,
-            kind: EntryKind::Expense,
             amount: 1_500,
         }]
     );
@@ -179,7 +192,7 @@ fn changing_applicability_to_both_offers_category_for_income() -> Result<(), Dom
     let mut ledger = Ledger::new();
     let id = create_top(&mut ledger, "Подарки", Applicability::Expense)?;
     assert_eq!(ledger.category(id)?.applicability(), Applicability::Expense);
-    assert!(!offers(&ledger, EntryKind::Income, id));
+    assert!(!offered_for_income(&ledger, id));
 
     ledger.update_category(
         id,
@@ -190,8 +203,8 @@ fn changing_applicability_to_both_offers_category_for_income() -> Result<(), Dom
     )?;
 
     assert_eq!(ledger.category(id)?.applicability(), Applicability::Both);
-    assert!(offers(&ledger, EntryKind::Income, id));
-    assert!(offers(&ledger, EntryKind::Expense, id));
+    assert!(offered_for_income(&ledger, id));
+    assert!(offered_for_expense(&ledger, id));
     Ok(())
 }
 
@@ -200,7 +213,7 @@ fn changing_applicability_to_both_offers_category_for_income() -> Result<(), Dom
 fn changing_applicability_keeps_recorded_income() -> Result<(), DomainError> {
     let mut ledger = Ledger::new();
     let id = create_top(&mut ledger, "Продажи", Applicability::Both)?;
-    add_amount(&mut ledger, id, EntryKind::Income, 2_000)?;
+    add_income(&mut ledger, id, 2_000)?;
 
     ledger.update_category(
         id,
@@ -212,16 +225,15 @@ fn changing_applicability_keeps_recorded_income() -> Result<(), DomainError> {
 
     assert_eq!(ledger.category(id)?.applicability(), Applicability::Expense);
     assert_eq!(
-        ledger.category_amounts(),
-        &[CategoryAmount {
+        ledger.records(),
+        &[Record::Income {
             category_id: id,
-            kind: EntryKind::Income,
             amount: 2_000,
         }]
     );
-    assert_eq!(ledger.category_total(id, EntryKind::Income)?, 2_000);
-    assert!(!offers(&ledger, EntryKind::Income, id));
-    assert!(offers(&ledger, EntryKind::Expense, id));
+    assert_eq!(ledger.income_total(id)?, 2_000);
+    assert!(!offered_for_income(&ledger, id));
+    assert!(offered_for_expense(&ledger, id));
     Ok(())
 }
 
@@ -232,8 +244,8 @@ fn income_only_category_is_not_offered_for_expense() -> Result<(), DomainError> 
     let id = create_top(&mut ledger, "Зарплата", Applicability::Income)?;
 
     assert_eq!(ledger.category(id)?.applicability(), Applicability::Income);
-    assert!(!offers(&ledger, EntryKind::Expense, id));
-    assert!(offers(&ledger, EntryKind::Income, id));
+    assert!(!offered_for_expense(&ledger, id));
+    assert!(offered_for_income(&ledger, id));
     Ok(())
 }
 

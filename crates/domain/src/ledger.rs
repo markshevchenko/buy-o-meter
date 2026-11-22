@@ -1,9 +1,7 @@
 use crate::account::{Account, AccountId, CreateAccount, UpdateAccount};
-use crate::category::{
-    Applicability, Category, CategoryAmount, CategoryId, CreateCategory, EntryKind, UpdateCategory,
-};
+use crate::category::{Applicability, Category, CategoryId, CreateCategory, UpdateCategory};
 use crate::error::DomainError;
-use crate::operation::{OperationDraft, RepaymentDirection};
+use crate::operation::{OperationDraft, Record, RepaymentDirection};
 
 #[derive(Debug)]
 pub struct Ledger {
@@ -12,7 +10,7 @@ pub struct Ledger {
     operations: Vec<OperationDraft>,
     next_category_id: u64,
     categories: Vec<Category>,
-    category_amounts: Vec<CategoryAmount>,
+    records: Vec<Record>,
 }
 
 impl Ledger {
@@ -24,7 +22,7 @@ impl Ledger {
             operations: Vec::new(),
             next_category_id: 1,
             categories: Vec::new(),
-            category_amounts: Vec::new(),
+            records: Vec::new(),
         }
     }
 
@@ -108,30 +106,38 @@ impl Ledger {
         Ok(())
     }
 
-    pub fn add_category_amount(&mut self, amount: CategoryAmount) -> Result<(), DomainError> {
-        self.category_amounts.push(amount);
+    pub fn add_record(&mut self, record: Record) -> Result<(), DomainError> {
+        self.records.push(record);
         Ok(())
     }
 
     #[must_use]
-    pub fn category_amounts(&self) -> &[CategoryAmount] {
-        &self.category_amounts
+    pub fn records(&self) -> &[Record] {
+        &self.records
     }
 
-    /// Свои суммы этого вида плюс суммы всех подкатегорий.
-    pub fn category_total(&self, id: CategoryId, kind: EntryKind) -> Result<i64, DomainError> {
-        self.find_category(id)
-            .ok_or(DomainError::CategoryNotFound)?;
-        Ok(self.amount_of(id, kind) + self.direct_children_amount(id, kind))
+    /// Свои расходы плюс расходы прямых подкатегорий.
+    pub fn expense_total(&self, id: CategoryId) -> Result<i64, DomainError> {
+        self.rolled_total(id, Self::expense_of)
     }
 
-    /// Категории, которые можно выбрать при вводе операции этого вида.
+    /// Свои доходы плюс доходы прямых подкатегорий.
+    pub fn income_total(&self, id: CategoryId) -> Result<i64, DomainError> {
+        self.rolled_total(id, Self::income_of)
+    }
+
     #[must_use]
-    pub fn categories_for(&self, kind: EntryKind) -> Vec<&Category> {
-        self.categories
-            .iter()
-            .filter(|category| applies_to(category.applicability(), kind))
-            .collect()
+    pub fn categories_for_expense(&self) -> Vec<&Category> {
+        self.categories_where(|applicability| {
+            matches!(applicability, Applicability::Expense | Applicability::Both)
+        })
+    }
+
+    #[must_use]
+    pub fn categories_for_income(&self) -> Vec<&Category> {
+        self.categories_where(|applicability| {
+            matches!(applicability, Applicability::Income | Applicability::Both)
+        })
     }
 
     pub fn add_operation(&mut self, draft: OperationDraft) -> Result<(), DomainError> {
@@ -181,19 +187,55 @@ impl Ledger {
             .any(|category| category.parent_id() == Some(id))
     }
 
-    fn amount_of(&self, id: CategoryId, kind: EntryKind) -> i64 {
-        self.category_amounts
-            .iter()
-            .filter(|amount| amount.category_id == id && amount.kind == kind)
-            .map(|amount| amount.amount)
-            .sum()
-    }
-
-    fn direct_children_amount(&self, id: CategoryId, kind: EntryKind) -> i64 {
-        self.categories
+    fn rolled_total(
+        &self,
+        id: CategoryId,
+        own: fn(&Self, CategoryId) -> i64,
+    ) -> Result<i64, DomainError> {
+        self.find_category(id)
+            .ok_or(DomainError::CategoryNotFound)?;
+        let children = self
+            .categories
             .iter()
             .filter(|category| category.parent_id() == Some(id))
-            .map(|category| self.amount_of(category.id(), kind))
+            .map(|category| own(self, category.id()))
+            .sum::<i64>();
+        Ok(own(self, id) + children)
+    }
+
+    fn categories_where(&self, allows: impl Fn(Applicability) -> bool) -> Vec<&Category> {
+        self.categories
+            .iter()
+            .filter(|category| allows(category.applicability()))
+            .collect()
+    }
+
+    fn expense_of(&self, id: CategoryId) -> i64 {
+        self.sum_of(id, |record| match record {
+            Record::Expense {
+                category_id,
+                amount,
+            } => Some((*category_id, *amount)),
+            Record::Income { .. } => None,
+        })
+    }
+
+    fn income_of(&self, id: CategoryId) -> i64 {
+        self.sum_of(id, |record| match record {
+            Record::Income {
+                category_id,
+                amount,
+            } => Some((*category_id, *amount)),
+            Record::Expense { .. } => None,
+        })
+    }
+
+    fn sum_of(&self, id: CategoryId, parts: impl Fn(&Record) -> Option<(CategoryId, i64)>) -> i64 {
+        self.records
+            .iter()
+            .filter_map(parts)
+            .filter(|(category_id, _)| *category_id == id)
+            .map(|(_, amount)| amount)
             .sum()
     }
 
@@ -234,15 +276,6 @@ impl Ledger {
         self.operations
             .iter()
             .any(|operation| operation_touches_account(operation, id))
-    }
-}
-
-fn applies_to(applicability: Applicability, kind: EntryKind) -> bool {
-    match kind {
-        EntryKind::Expense => {
-            matches!(applicability, Applicability::Expense | Applicability::Both)
-        }
-        EntryKind::Income => matches!(applicability, Applicability::Income | Applicability::Both),
     }
 }
 
@@ -415,15 +448,14 @@ mod tests {
         assert_eq!(err, Err(DomainError::CategoryTooDeep));
         assert_eq!(ledger.category(taxi)?.parent_id(), None);
 
-        ledger.add_category_amount(CategoryAmount {
+        ledger.add_record(Record::Expense {
             category_id: taxi,
-            kind: EntryKind::Expense,
             amount: 100,
         })?;
         let err = ledger.move_category(taxi, taxi);
         assert_eq!(err, Err(DomainError::CategoryTooDeep));
         assert_eq!(ledger.category(taxi)?.parent_id(), None);
-        assert_eq!(ledger.category_total(taxi, EntryKind::Expense)?, 100);
+        assert_eq!(ledger.expense_total(taxi)?, 100);
         Ok(())
     }
 
@@ -448,8 +480,8 @@ mod tests {
             applicability: Some(Applicability::Both),
         })?;
 
-        let for_expense = ledger.categories_for(EntryKind::Expense);
-        let for_income = ledger.categories_for(EntryKind::Income);
+        let for_expense = ledger.categories_for_expense();
+        let for_income = ledger.categories_for_income();
         assert!(for_expense.iter().any(|category| category.id() == expense));
         assert!(for_expense.iter().any(|category| category.id() == both));
         assert!(!for_expense.iter().any(|category| category.id() == income));
@@ -479,23 +511,21 @@ mod tests {
             parent_id: None,
             applicability: Some(Applicability::Expense),
         })?;
-        ledger.add_category_amount(CategoryAmount {
+        ledger.add_record(Record::Expense {
             category_id: lunches,
-            kind: EntryKind::Expense,
             amount: 1_500,
         })?;
 
         ledger.move_category(lunches, leisure)?;
 
         assert_eq!(ledger.category(lunches)?.parent_id(), Some(leisure));
-        assert_eq!(ledger.category_total(lunches, EntryKind::Expense)?, 1_500);
-        assert_eq!(ledger.category_total(leisure, EntryKind::Expense)?, 1_500);
-        assert_eq!(ledger.category_total(food, EntryKind::Expense)?, 0);
+        assert_eq!(ledger.expense_total(lunches)?, 1_500);
+        assert_eq!(ledger.expense_total(leisure)?, 1_500);
+        assert_eq!(ledger.expense_total(food)?, 0);
         assert_eq!(
-            ledger.category_amounts(),
-            &[CategoryAmount {
+            ledger.records(),
+            &[Record::Expense {
                 category_id: lunches,
-                kind: EntryKind::Expense,
                 amount: 1_500,
             }]
         );
@@ -503,7 +533,7 @@ mod tests {
     }
 
     #[test]
-    fn category_total_adds_own_amounts_and_direct_children() -> Result<(), DomainError> {
+    fn totals_add_own_records_and_direct_children() -> Result<(), DomainError> {
         use crate::category::Applicability;
 
         let mut ledger = Ledger::new();
@@ -517,26 +547,23 @@ mod tests {
             parent_id: Some(food),
             applicability: None,
         })?;
-        ledger.add_category_amount(CategoryAmount {
+        ledger.add_record(Record::Expense {
             category_id: food,
-            kind: EntryKind::Expense,
             amount: 400,
         })?;
-        ledger.add_category_amount(CategoryAmount {
+        ledger.add_record(Record::Expense {
             category_id: lunches,
-            kind: EntryKind::Expense,
             amount: 1_500,
         })?;
-        ledger.add_category_amount(CategoryAmount {
+        ledger.add_record(Record::Income {
             category_id: lunches,
-            kind: EntryKind::Income,
             amount: 50,
         })?;
 
-        assert_eq!(ledger.category_total(food, EntryKind::Expense)?, 1_900);
-        assert_eq!(ledger.category_total(lunches, EntryKind::Expense)?, 1_500);
-        assert_eq!(ledger.category_total(food, EntryKind::Income)?, 50);
-        assert_eq!(ledger.category_total(lunches, EntryKind::Income)?, 50);
+        assert_eq!(ledger.expense_total(food)?, 1_900);
+        assert_eq!(ledger.expense_total(lunches)?, 1_500);
+        assert_eq!(ledger.income_total(food)?, 50);
+        assert_eq!(ledger.income_total(lunches)?, 50);
         Ok(())
     }
 
@@ -550,9 +577,8 @@ mod tests {
             parent_id: None,
             applicability: Some(Applicability::Expense),
         })?;
-        ledger.add_category_amount(CategoryAmount {
+        ledger.add_record(Record::Expense {
             category_id: id,
-            kind: EntryKind::Expense,
             amount: 450,
         })?;
 
@@ -566,10 +592,9 @@ mod tests {
 
         assert_eq!(ledger.category(id)?.name(), "Кофейни");
         assert_eq!(
-            ledger.category_amounts(),
-            &[CategoryAmount {
+            ledger.records(),
+            &[Record::Expense {
                 category_id: id,
-                kind: EntryKind::Expense,
                 amount: 450,
             }]
         );

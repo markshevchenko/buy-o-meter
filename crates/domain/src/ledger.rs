@@ -174,7 +174,11 @@ impl Ledger {
     /// Есть расходы — категорий только для доходов в списке нет.
     pub fn transfer_targets(&self, id: CategoryId) -> Result<Vec<&Category>, DomainError> {
         self.find_category(id).ok_or(DomainError::CategoryNotFound)?;
-        Ok(Vec::new())
+        Ok(self
+            .categories
+            .iter()
+            .filter(|category| category.id() != id)
+            .collect())
     }
 
     /// Лист без операций удаляется при пустом `transfer_to`.
@@ -2337,5 +2341,48 @@ mod tests {
             ledger.transfer_targets(missing),
             Err(DomainError::CategoryNotFound)
         );
+    }
+
+    #[test]
+    fn transfer_targets_include_parent_peers_and_other_categories() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let lunches = ledger.create_category(CreateCategory {
+            name: "Обеды в городе".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+        let home_lunches = ledger.create_category(CreateCategory {
+            name: "Обед дома".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+        let transport = ledger.create_category(CreateCategory {
+            name: "Транспорт".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+
+        let targets = target_ids(&ledger, lunches)?;
+
+        assert!(!targets.contains(&lunches));
+        assert!(targets.contains(&food));
+        assert!(targets.contains(&home_lunches));
+        assert!(targets.contains(&transport));
+        Ok(())
+    }
+
+    fn target_ids(ledger: &Ledger, id: CategoryId) -> Result<Vec<CategoryId>, DomainError> {
+        Ok(ledger
+            .transfer_targets(id)?
+            .iter()
+            .map(|category| category.id())
+            .collect())
     }
 }

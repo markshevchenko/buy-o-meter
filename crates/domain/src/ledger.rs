@@ -215,6 +215,10 @@ impl Ledger {
             account_id,
             amount,
         });
+        self.records.push(Record::Expense {
+            category_id,
+            amount,
+        });
         Ok(())
     }
 
@@ -1231,6 +1235,42 @@ mod tests {
         assert_eq!(ledger.balance(rub)?, 10_000);
         assert_eq!(ledger.expenses()[0].amount(), 15);
         assert_eq!(ledger.account(usd)?.currency().as_str(), "USD");
+        Ok(())
+    }
+
+    #[test]
+    fn expense_on_parent_counts_only_toward_that_category() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+        use std::time::SystemTime;
+
+        let mut ledger = Ledger::new();
+        let account_id = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 10_000,
+        })?;
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let groceries = ledger.create_category(CreateCategory {
+            name: "Продукты".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+
+        ledger.add_expense(NewExpense {
+            date: SystemTime::UNIX_EPOCH,
+            account_id: Some(account_id),
+            category_id: Some(food),
+            amount: Some(1_200),
+            comment: String::new(),
+        })?;
+
+        assert_eq!(ledger.expenses()[0].category_id(), food);
+        assert_eq!(ledger.expense_total(food)?, 1_200);
+        assert_eq!(ledger.expense_total(groceries)?, 0);
         Ok(())
     }
 }

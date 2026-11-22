@@ -460,6 +460,22 @@ pub struct Repayment {
 }
 
 impl Repayment {
+    pub(crate) fn new(
+        date: SystemTime,
+        account_id: AccountId,
+        counterparty_name: String,
+        direction: RepaymentDirection,
+        amount: i64,
+    ) -> Self {
+        Self {
+            date,
+            account_id,
+            counterparty_name,
+            direction,
+            amount,
+        }
+    }
+
     #[must_use]
     pub fn date(&self) -> SystemTime {
         self.date

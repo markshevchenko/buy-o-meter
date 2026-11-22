@@ -551,7 +551,7 @@ impl Ledger {
             .find(|counterparty| counterparty.id() == id)
             .map(Counterparty::name)
             .ok_or(DomainError::CounterpartyNotFound)?;
-        if self.lends.iter().any(|lend| open_amount(lend, name)) {
+        if has_open_debt(&self.debts_to_me(), name) || has_open_debt(&self.my_debts(), name) {
             return Err(DomainError::CounterpartyHasDebts);
         }
         Ok(())
@@ -861,8 +861,8 @@ fn move_records(records: &mut [Record], from: CategoryId, to: CategoryId) {
     }
 }
 
-fn open_amount(lend: &Lend, name: &str) -> bool {
-    lend.counterparty_name() == name && lend.amount() != 0
+fn has_open_debt(debts: &[Debt], name: &str) -> bool {
+    debts.iter().any(|debt| debt.counterparty_name() == name)
 }
 
 fn debt_balances<T>(
@@ -3322,6 +3322,37 @@ mod tests {
         assert_eq!(ledger.my_debts()[0].amount(), 5_000);
         assert!(ledger.debts_to_me().is_empty());
         assert_eq!(ledger.borrows()[0].counterparty_name(), "Маша");
+        Ok(())
+    }
+
+    #[test]
+    fn counterparty_with_borrow_cannot_be_renamed_or_deleted() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let card = ledger.create_account(CreateAccount {
+            name: "Карта".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 1_000,
+        })?;
+        ledger.add_borrow(NewBorrow {
+            date: date(2026, 11, 22)?,
+            account_id: Some(card),
+            counterparty: Some("Маша".into()),
+            amount: Some(5_000),
+        })?;
+
+        let id = ledger.counterparties()[0].id();
+        let before = ledger.counterparties().to_vec();
+        assert_eq!(
+            ledger.rename_counterparty(id, "Мария".into()),
+            Err(DomainError::CounterpartyHasDebts)
+        );
+        assert_eq!(
+            ledger.delete_counterparty(id),
+            Err(DomainError::CounterpartyHasDebts)
+        );
+        assert_eq!(ledger.counterparties(), before.as_slice());
+        assert_eq!(ledger.borrows()[0].counterparty_name(), "Маша");
+        assert_eq!(ledger.borrows()[0].amount(), 5_000);
         Ok(())
     }
 }

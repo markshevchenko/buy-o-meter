@@ -117,6 +117,10 @@ impl Expense {
         self.category_id
     }
 
+    pub(crate) fn set_category_id(&mut self, category_id: CategoryId) {
+        self.category_id = category_id;
+    }
+
     #[must_use]
     pub fn amount(&self) -> i64 {
         self.amount
@@ -189,6 +193,10 @@ impl Income {
     #[must_use]
     pub fn category_id(&self) -> CategoryId {
         self.category_id
+    }
+
+    pub(crate) fn set_category_id(&mut self, category_id: CategoryId) {
+        self.category_id = category_id;
     }
 
     #[must_use]

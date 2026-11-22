@@ -128,21 +128,91 @@ impl Expense {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::time::{Duration, SystemTime};
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewIncome {
+    pub date: SystemTime,
+    pub account_id: Option<AccountId>,
+    pub category_id: Option<CategoryId>,
+    pub amount: Option<i64>,
+    pub comment: String,
+}
 
-    use crate::clock::FixedClock;
+impl NewIncome {
+    #[must_use]
+    pub fn open(clock: &impl Clock) -> Self {
+        Self {
+            date: clock.today(),
+            account_id: None,
+            category_id: None,
+            amount: None,
+            comment: String::new(),
+        }
+    }
+}
 
-    use super::NewExpense;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Income {
+    date: SystemTime,
+    account_id: AccountId,
+    category_id: CategoryId,
+    amount: i64,
+    comment: String,
+}
 
-    fn midnight(days_after_epoch: u32) -> SystemTime {
-        SystemTime::UNIX_EPOCH + Duration::from_secs(24 * 60 * 60) * days_after_epoch
+impl Income {
+    pub(crate) fn new(
+        date: SystemTime,
+        account_id: AccountId,
+        category_id: CategoryId,
+        amount: i64,
+        comment: String,
+    ) -> Self {
+        Self {
+            date,
+            account_id,
+            category_id,
+            amount,
+            comment,
+        }
     }
 
+    #[must_use]
+    pub fn date(&self) -> SystemTime {
+        self.date
+    }
+
+    #[must_use]
+    pub fn account_id(&self) -> AccountId {
+        self.account_id
+    }
+
+    #[must_use]
+    pub fn category_id(&self) -> CategoryId {
+        self.category_id
+    }
+
+    #[must_use]
+    pub fn amount(&self) -> i64 {
+        self.amount
+    }
+
+    #[must_use]
+    pub fn comment(&self) -> &str {
+        &self.comment
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::clock::FixedClock;
+    use crate::date;
+    use crate::error::DomainError;
+
+    use super::{NewExpense, NewIncome};
+
     #[test]
-    fn open_sets_today_and_leaves_fields_empty() {
-        let today = midnight(4);
+    fn open_sets_today_and_leaves_fields_empty() -> Result<(), DomainError> {
+        let today = date(2026, 11, 22)?;
         let form = NewExpense::open(&FixedClock::new(today));
 
         assert_eq!(form.date, today);
@@ -150,5 +220,19 @@ mod tests {
         assert_eq!(form.category_id, None);
         assert_eq!(form.amount, None);
         assert_eq!(form.comment, "");
+        Ok(())
+    }
+
+    #[test]
+    fn open_income_sets_today_and_leaves_fields_empty() -> Result<(), DomainError> {
+        let today = date(2026, 11, 22)?;
+        let form = NewIncome::open(&FixedClock::new(today));
+
+        assert_eq!(form.date, today);
+        assert_eq!(form.account_id, None);
+        assert_eq!(form.category_id, None);
+        assert_eq!(form.amount, None);
+        assert_eq!(form.comment, "");
+        Ok(())
     }
 }

@@ -1,13 +1,7 @@
-use std::time::{Duration, SystemTime};
-
 use domain::{
     AccountId, Applicability, CategoryId, CreateAccount, CreateCategory, Currency, DomainError,
-    FixedClock, Ledger, MissingFields, NewExpense,
+    FixedClock, Ledger, MissingFields, NewExpense, add_days, date,
 };
-
-fn midnight(days_after_epoch: u64) -> SystemTime {
-    SystemTime::UNIX_EPOCH + Duration::from_secs(days_after_epoch * 24 * 60 * 60)
-}
 
 fn create_account(
     ledger: &mut Ledger,
@@ -53,7 +47,7 @@ fn saved_expense_stores_date_account_category_amount_and_comment() -> Result<(),
     let mut ledger = Ledger::new();
     let account_id = create_account(&mut ledger, "Наличные", "RUB", 10_000)?;
     let category_id = create_top(&mut ledger, "Продукты", Applicability::Expense)?;
-    let date = midnight(0);
+    let date = date(2026, 11, 22)?;
 
     ledger.add_expense(NewExpense {
         date,
@@ -76,7 +70,7 @@ fn saved_expense_stores_date_account_category_amount_and_comment() -> Result<(),
 // 007 «Значения по умолчанию»
 #[test]
 fn new_expense_opens_with_today_and_empty_fields() -> Result<(), DomainError> {
-    let today = midnight(0);
+    let today = date(2026, 11, 22)?;
     let form = NewExpense::open(&FixedClock::new(today));
 
     assert_eq!(form.date, today);
@@ -138,7 +132,7 @@ fn expense_on_top_level_category_does_not_use_subcategory() -> Result<(), Domain
     assert_eq!(ledger.category(groceries)?.parent_id(), Some(food));
 
     ledger.add_expense(NewExpense {
-        date: midnight(0),
+        date: date(2026, 11, 22)?,
         account_id: Some(account_id),
         category_id: Some(food),
         amount: Some(1_200),
@@ -160,7 +154,7 @@ fn saving_expenses_assigns_day_numbers_and_reduces_balance() -> Result<(), Domai
     let mut ledger = Ledger::new();
     let account_id = create_account(&mut ledger, "Наличные", "RUB", 10_000)?;
     let category_id = create_top(&mut ledger, "Продукты", Applicability::Expense)?;
-    let date = midnight(0);
+    let date = date(2026, 11, 22)?;
 
     ledger.add_expense(NewExpense {
         date,
@@ -196,7 +190,7 @@ fn expense_amount_stays_in_selected_account_currency() -> Result<(), DomainError
     let category_id = create_top(&mut ledger, "Продукты", Applicability::Expense)?;
 
     ledger.add_expense(NewExpense {
-        date: midnight(0),
+        date: date(2026, 11, 22)?,
         account_id: Some(usd),
         category_id: Some(category_id),
         amount: Some(15),
@@ -220,7 +214,7 @@ fn expense_missing_account_category_or_amount_is_rejected() -> Result<(), Domain
     let mut ledger = Ledger::new();
     let account_id = create_account(&mut ledger, "Наличные", "RUB", 10_000)?;
     let category_id = create_top(&mut ledger, "Продукты", Applicability::Expense)?;
-    let date = midnight(0);
+    let date = date(2026, 11, 22)?;
 
     let missing_account = ledger.add_expense(NewExpense {
         date,
@@ -283,7 +277,7 @@ fn expense_with_empty_comment_is_saved() -> Result<(), DomainError> {
     let category_id = create_top(&mut ledger, "Продукты", Applicability::Expense)?;
 
     ledger.add_expense(NewExpense {
-        date: midnight(0),
+        date: date(2026, 11, 22)?,
         account_id: Some(account_id),
         category_id: Some(category_id),
         amount: Some(100),
@@ -302,8 +296,8 @@ fn expense_on_past_date_appends_to_that_day() -> Result<(), DomainError> {
     let mut ledger = Ledger::new();
     let account_id = create_account(&mut ledger, "Наличные", "RUB", 10_000)?;
     let category_id = create_top(&mut ledger, "Продукты", Applicability::Expense)?;
-    let yesterday = midnight(0);
-    let today = yesterday + Duration::from_secs(24 * 60 * 60);
+    let yesterday = date(2026, 11, 21)?;
+    let today = add_days(yesterday, 1)?;
 
     ledger.add_expense(NewExpense {
         date: yesterday,

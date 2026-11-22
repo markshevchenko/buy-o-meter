@@ -178,24 +178,11 @@ impl Ledger {
     }
 
     pub fn expense_total(&self, id: CategoryId) -> Result<i64, DomainError> {
-        self.find_category(id)
-            .ok_or(DomainError::CategoryNotFound)?;
-        let mut currency = None;
-        let mut total = self.expense_slice(id, &mut currency)?;
-        let children: Vec<CategoryId> = self
-            .categories
-            .iter()
-            .filter(|category| category.parent_id() == Some(id))
-            .map(|category| category.id())
-            .collect();
-        for child in children {
-            total += self.expense_slice(child, &mut currency)?;
-        }
-        Ok(total)
+        self.category_total(id, Self::expense_slice)
     }
 
     pub fn income_total(&self, id: CategoryId) -> Result<i64, DomainError> {
-        self.rolled_total(id, Self::income_amount)
+        self.category_total(id, Self::income_slice)
     }
 
     #[must_use]
@@ -335,20 +322,27 @@ impl Ledger {
             .any(|category| category.parent_id() == Some(id))
     }
 
-    fn rolled_total(
+    fn category_total(
         &self,
         id: CategoryId,
-        own: fn(&Self, CategoryId) -> i64,
+        slice: fn(&Self, CategoryId, &mut Option<Currency>) -> Result<i64, DomainError>,
     ) -> Result<i64, DomainError> {
         self.find_category(id)
             .ok_or(DomainError::CategoryNotFound)?;
-        let children = self
-            .categories
+        let mut currency = None;
+        let mut total = slice(self, id, &mut currency)?;
+        for child in self.direct_children(id) {
+            total += slice(self, child, &mut currency)?;
+        }
+        Ok(total)
+    }
+
+    fn direct_children(&self, id: CategoryId) -> Vec<CategoryId> {
+        self.categories
             .iter()
             .filter(|category| category.parent_id() == Some(id))
-            .map(|category| own(self, category.id()))
-            .sum::<i64>();
-        Ok(own(self, id) + children)
+            .map(|category| category.id())
+            .collect()
     }
 
     fn categories_where(&self, allows: impl Fn(Applicability) -> bool) -> Vec<&Category> {
@@ -363,16 +357,50 @@ impl Ledger {
         id: CategoryId,
         currency: &mut Option<Currency>,
     ) -> Result<i64, DomainError> {
-        let mut total = self.expense_of(id);
-        for expense in &self.expenses {
-            if expense.category_id() != id {
+        self.saved_total(
+            id,
+            currency,
+            self.expense_of(id),
+            &self.expenses,
+            |expense| {
+                (
+                    expense.category_id(),
+                    expense.account_id(),
+                    expense.amount(),
+                )
+            },
+        )
+    }
+
+    fn income_slice(
+        &self,
+        id: CategoryId,
+        currency: &mut Option<Currency>,
+    ) -> Result<i64, DomainError> {
+        self.saved_total(id, currency, self.income_of(id), &self.incomes, |income| {
+            (income.category_id(), income.account_id(), income.amount())
+        })
+    }
+
+    fn saved_total<T>(
+        &self,
+        id: CategoryId,
+        currency: &mut Option<Currency>,
+        recorded: i64,
+        saved: &[T],
+        parts: impl Fn(&T) -> (CategoryId, AccountId, i64),
+    ) -> Result<i64, DomainError> {
+        let mut total = recorded;
+        for item in saved {
+            let (category_id, account_id, amount) = parts(item);
+            if category_id != id {
                 continue;
             }
             let account = self
-                .find_account(expense.account_id())
+                .find_account(account_id)
                 .ok_or(DomainError::AccountNotFound)?;
             note_currency(currency, account.currency())?;
-            total += expense.amount();
+            total += amount;
         }
         Ok(total)
     }
@@ -385,18 +413,6 @@ impl Ledger {
             } => Some((*category_id, *amount)),
             Record::Income { .. } => None,
         })
-    }
-
-    fn income_amount(&self, id: CategoryId) -> i64 {
-        self.income_of(id) + self.saved_income_of(id)
-    }
-
-    fn saved_income_of(&self, id: CategoryId) -> i64 {
-        self.incomes
-            .iter()
-            .filter(|income| income.category_id() == id)
-            .map(|income| income.amount())
-            .sum()
     }
 
     fn income_of(&self, id: CategoryId) -> i64 {
@@ -1642,6 +1658,51 @@ mod tests {
         assert_eq!(ledger.balance(usd)?, -15);
         assert_eq!(
             ledger.expense_total(food),
+            Err(DomainError::MixedCurrencies)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn income_total_rejects_mixed_currencies() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let rub = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 0,
+        })?;
+        let usd = ledger.create_account(CreateAccount {
+            name: "Доллары".into(),
+            currency: Currency::new("USD"),
+            opening_balance: 0,
+        })?;
+        let salary = ledger.create_category(CreateCategory {
+            name: "Зарплата".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Income),
+        })?;
+        ledger.add_income(NewIncome {
+            date: date(2026, 11, 22)?,
+            account_id: Some(rub),
+            category_id: Some(salary),
+            amount: Some(1_000),
+            comment: String::new(),
+        })?;
+        ledger.add_income(NewIncome {
+            date: date(2026, 11, 22)?,
+            account_id: Some(usd),
+            category_id: Some(salary),
+            amount: Some(15),
+            comment: String::new(),
+        })?;
+
+        assert_eq!(ledger.incomes().len(), 2);
+        assert_eq!(ledger.balance(rub)?, 1_000);
+        assert_eq!(ledger.balance(usd)?, 15);
+        assert_eq!(
+            ledger.income_total(salary),
             Err(DomainError::MixedCurrencies)
         );
         Ok(())

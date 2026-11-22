@@ -221,8 +221,14 @@ pub struct NewTransfer {
 impl NewTransfer {
     #[must_use]
     pub fn open(clock: &impl Clock) -> Self {
-        let _ = clock;
-        todo!()
+        Self {
+            date: clock.today(),
+            from_account_id: None,
+            to_account_id: None,
+            amount: None,
+            to_amount: None,
+            comment: String::new(),
+        }
     }
 }
 
@@ -274,7 +280,7 @@ mod tests {
     use crate::date;
     use crate::error::DomainError;
 
-    use super::{NewExpense, NewIncome};
+    use super::{NewExpense, NewIncome, NewTransfer};
 
     #[test]
     fn open_sets_today_and_leaves_fields_empty() -> Result<(), DomainError> {
@@ -298,6 +304,20 @@ mod tests {
         assert_eq!(form.account_id, None);
         assert_eq!(form.category_id, None);
         assert_eq!(form.amount, None);
+        assert_eq!(form.comment, "");
+        Ok(())
+    }
+
+    #[test]
+    fn open_transfer_sets_today_and_leaves_fields_empty() -> Result<(), DomainError> {
+        let today = date(2026, 11, 22)?;
+        let form = NewTransfer::open(&FixedClock::new(today));
+
+        assert_eq!(form.date, today);
+        assert_eq!(form.from_account_id, None);
+        assert_eq!(form.to_account_id, None);
+        assert_eq!(form.amount, None);
+        assert_eq!(form.to_amount, None);
         assert_eq!(form.comment, "");
         Ok(())
     }

@@ -5,7 +5,8 @@ use crate::category::{Applicability, Category, CategoryId, CreateCategory, Updat
 use crate::currency::Currency;
 use crate::error::{DomainError, MissingFields};
 use crate::operation::{
-    Expense, Income, NewExpense, NewIncome, OperationDraft, Record, RepaymentDirection,
+    Expense, Income, NewExpense, NewIncome, NewTransfer, OperationDraft, Record,
+    RepaymentDirection, Transfer, TransferAmountFields,
 };
 use crate::starter::{EXPENSE_TREE, INCOME_TREE, StarterGroup};
 
@@ -274,6 +275,31 @@ impl Ledger {
     #[must_use]
     pub fn incomes(&self) -> &[Income] {
         &self.incomes
+    }
+
+    /// Одна валюта: списывается и зачисляется `amount`, `to_amount` пустой.
+    /// Разные валюты: списывается `amount`, зачисляется `to_amount`.
+    /// Один и тот же счёт — `DomainError::SameAccount`, список не меняется.
+    /// В итоги категорий перевод не входит.
+    pub fn add_transfer(&mut self, input: NewTransfer) -> Result<(), DomainError> {
+        let _ = input;
+        todo!()
+    }
+
+    /// По дате, внутри дня в порядке добавления.
+    #[must_use]
+    pub fn transfers(&self) -> &[Transfer] {
+        todo!()
+    }
+
+    /// `One`, если валюты счетов совпадают, иначе `Two`.
+    pub fn transfer_amount_fields(
+        &self,
+        from_account_id: AccountId,
+        to_account_id: AccountId,
+    ) -> Result<TransferAmountFields, DomainError> {
+        let _ = (from_account_id, to_account_id);
+        todo!()
     }
 
     fn place_expense(&mut self, expense: Expense) {

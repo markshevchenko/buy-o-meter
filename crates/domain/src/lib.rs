@@ -14,5 +14,6 @@ pub use currency::Currency;
 pub use error::{DomainError, MissingFields};
 pub use ledger::Ledger;
 pub use operation::{
-    Expense, Income, NewExpense, NewIncome, OperationDraft, Record, RepaymentDirection,
+    Expense, Income, NewExpense, NewIncome, NewTransfer, OperationDraft, Record,
+    RepaymentDirection, Transfer, TransferAmountFields,
 };

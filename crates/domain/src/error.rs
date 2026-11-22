@@ -16,4 +16,5 @@ pub enum DomainError {
     MissingFields(MissingFields),
     MixedCurrencies,
     InvalidDate,
+    SameAccount,
 }

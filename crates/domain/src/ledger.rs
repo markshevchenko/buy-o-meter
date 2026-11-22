@@ -3750,4 +3750,43 @@ mod tests {
         assert_eq!(ledger.repayments()[0].counterparty_name(), "Петя");
         Ok(())
     }
+
+    #[test]
+    fn repayment_on_earlier_date_appends_to_that_day() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let yesterday = date(2026, 11, 21)?;
+        let today = add_days(yesterday, 1)?;
+        ledger.add_lend(NewLend {
+            date: yesterday,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+        let repay = |when, amount| NewRepayment {
+            date: when,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            direction: Some(RepaymentDirection::Received),
+            amount: Some(amount),
+        };
+
+        ledger.add_repayment(repay(yesterday, 100))?;
+        ledger.add_repayment(repay(today, 200))?;
+        ledger.add_repayment(repay(yesterday, 300))?;
+
+        let repayments = ledger.repayments();
+        assert_eq!(repayments.len(), 3);
+        assert_eq!(repayments[0].date(), yesterday);
+        assert_eq!(repayments[0].amount(), 100);
+        assert_eq!(repayments[1].date(), yesterday);
+        assert_eq!(repayments[1].amount(), 300);
+        assert_eq!(repayments[2].date(), today);
+        assert_eq!(repayments[2].amount(), 200);
+        Ok(())
+    }
 }

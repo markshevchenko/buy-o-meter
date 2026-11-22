@@ -2,6 +2,7 @@ use crate::account::{Account, AccountId, CreateAccount, UpdateAccount};
 use crate::category::{Applicability, Category, CategoryId, CreateCategory, UpdateCategory};
 use crate::error::DomainError;
 use crate::operation::{OperationDraft, Record, RepaymentDirection};
+use crate::starter::{EXPENSE_TREE, INCOME_TREE, StarterGroup};
 
 #[derive(Debug)]
 pub struct Ledger {
@@ -10,6 +11,7 @@ pub struct Ledger {
     operations: Vec<OperationDraft>,
     next_category_id: u64,
     categories: Vec<Category>,
+    starter_seeded: bool,
     records: Vec<Record>,
 }
 
@@ -22,6 +24,7 @@ impl Ledger {
             operations: Vec::new(),
             next_category_id: 1,
             categories: Vec::new(),
+            starter_seeded: false,
             records: Vec::new(),
         }
     }
@@ -63,6 +66,55 @@ impl Ledger {
             .ok_or(DomainError::AccountNotFound)?
             .update(input);
         Ok(())
+    }
+
+    /// Создаёт стартовый набор категорий один раз.
+    /// Повторный вызов не добавляет категории и не откатывает правки.
+    pub fn seed_starter_categories(&mut self) {
+        if self.starter_seeded {
+            return;
+        }
+        self.starter_seeded = true;
+        self.seed_tree(EXPENSE_TREE, Applicability::Expense);
+        self.seed_tree(INCOME_TREE, Applicability::Income);
+    }
+
+    fn seed_tree(&mut self, tree: &[StarterGroup], applicability: Applicability) {
+        for group in tree {
+            self.seed_group(group, applicability);
+        }
+    }
+
+    fn seed_group(&mut self, group: &StarterGroup, applicability: Applicability) {
+        let Some(parent_id) = self.seed_category(group.name, None, applicability) else {
+            return;
+        };
+        self.seed_children(parent_id, group.children, applicability);
+    }
+
+    fn seed_children(
+        &mut self,
+        parent_id: CategoryId,
+        children: &[&str],
+        applicability: Applicability,
+    ) {
+        for child in children {
+            let _ = self.seed_category(child, Some(parent_id), applicability);
+        }
+    }
+
+    fn seed_category(
+        &mut self,
+        name: &str,
+        parent_id: Option<CategoryId>,
+        applicability: Applicability,
+    ) -> Option<CategoryId> {
+        self.create_category(CreateCategory {
+            name: name.to_owned(),
+            parent_id,
+            applicability: Some(applicability),
+        })
+        .ok()
     }
 
     pub fn create_category(&mut self, input: CreateCategory) -> Result<CategoryId, DomainError> {
@@ -363,6 +415,124 @@ impl Default for Ledger {
 mod tests {
     use super::*;
     use crate::currency::Currency;
+
+    struct ExpectedGroup {
+        name: &'static str,
+        children: &'static [&'static str],
+    }
+
+    #[rustfmt::skip]
+    const EXPECTED_EXPENSES: &[ExpectedGroup] = &[
+        ExpectedGroup {
+            name: "Жильё",
+            children: &[
+                "Аренда/покупка/ипотека",
+                "ЖКХ",
+                "Интернет и связь",
+                "Ремонт и мебель",
+                "Техника",
+                "Хозтовары",
+            ],
+        },
+        ExpectedGroup {
+            name: "Питание",
+            children: &[
+                "Продукты",
+                "Кафе и рестораны",
+                "Рабочие обеды",
+            ],
+        },
+        ExpectedGroup {
+            name: "Транспорт",
+            children: &[
+                "Общественный транспорт",
+                "Бензин",
+                "Такси",
+                "Парковка и штрафы",
+                "Обслуживание авто",
+            ],
+        },
+        ExpectedGroup {
+            name: "Здоровье",
+            children: &[
+                "Лекарства",
+                "Врачи и клиники",
+                "Страховка",
+                "Спорт и фитнес",
+            ],
+        },
+        ExpectedGroup {
+            name: "Личные расходы",
+            children: &[
+                "Одежда и обувь",
+                "Гигиена и красота",
+                "Подписки и сервисы",
+            ],
+        },
+        ExpectedGroup {
+            name: "Семья и дети",
+            children: &[
+                "Образование",
+                "Одежда и товары",
+                "Секции и кружки",
+                "Питомцы",
+            ],
+        },
+        ExpectedGroup {
+            name: "Развлечения и развитие",
+            children: &[
+                "Досуг (кино, концерты)",
+                "Путешествия",
+                "Образование (курсы, книги)",
+                "Хобби",
+            ],
+        },
+        ExpectedGroup {
+            name: "Обязательные платежи",
+            children: &[
+                "Кредиты и займы",
+                "Налоги",
+                "Алименты",
+                "Банковские комиссии",
+            ],
+        },
+        ExpectedGroup {
+            name: "Прочее",
+            children: &[
+                "Непредвиденные расходы",
+                "Прочие траты",
+                "Потери",
+                "Подарки",
+            ],
+        },
+    ];
+
+    #[rustfmt::skip]
+    const EXPECTED_INCOMES: &[ExpectedGroup] = &[
+        ExpectedGroup {
+            name: "Активный доход",
+            children: &[
+                "Зарплата (оклад)",
+                "Премии и бонусы",
+                "Подработка",
+            ],
+        },
+        ExpectedGroup {
+            name: "Пассивный доход",
+            children: &[
+                "Проценты по вкладам",
+                "Кэшбэк",
+            ],
+        },
+        ExpectedGroup {
+            name: "Прочее",
+            children: &[
+                "Прочие доходы",
+                "Купоны по облигациям",
+                "Подарки",
+            ],
+        },
+    ];
 
     #[test]
     fn new_ledger_has_no_accounts() {
@@ -711,6 +881,148 @@ mod tests {
         assert_eq!(ledger.category(id)?.applicability(), Applicability::Expense);
         assert_eq!(ledger.category(id)?.parent_id(), None);
         Ok(())
+    }
+
+    #[test]
+    fn seed_starter_categories_creates_housing_group() {
+        let mut ledger = Ledger::new();
+        assert!(ledger.categories().is_empty());
+
+        ledger.seed_starter_categories();
+
+        let categories = ledger.categories();
+        let housing_id = assert_expense_at(categories, 0, "Жильё", None);
+        assert_expense_at(categories, 1, "Аренда/покупка/ипотека", Some(housing_id));
+        assert_expense_at(categories, 2, "ЖКХ", Some(housing_id));
+        assert_expense_at(categories, 3, "Интернет и связь", Some(housing_id));
+        assert_expense_at(categories, 4, "Ремонт и мебель", Some(housing_id));
+        assert_expense_at(categories, 5, "Техника", Some(housing_id));
+        assert_expense_at(categories, 6, "Хозтовары", Some(housing_id));
+    }
+
+    #[test]
+    fn seed_starter_categories_creates_the_expense_tree() {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        ledger.seed_starter_categories();
+
+        let mut index = 0;
+        place_expected(
+            ledger.categories(),
+            &mut index,
+            EXPECTED_EXPENSES,
+            Applicability::Expense,
+        );
+        assert_eq!(index, group_len(EXPECTED_EXPENSES));
+    }
+
+    #[test]
+    fn seed_starter_categories_appends_the_income_tree() {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        ledger.seed_starter_categories();
+
+        let mut index = 0;
+        place_expected(
+            ledger.categories(),
+            &mut index,
+            EXPECTED_EXPENSES,
+            Applicability::Expense,
+        );
+        place_expected(
+            ledger.categories(),
+            &mut index,
+            EXPECTED_INCOMES,
+            Applicability::Income,
+        );
+        assert_eq!(index, ledger.categories().len());
+    }
+
+    #[test]
+    fn seed_starter_categories_again_keeps_edits() -> Result<(), DomainError> {
+        use crate::category::{Applicability, CreateCategory, UpdateCategory};
+
+        let mut ledger = Ledger::new();
+        ledger.seed_starter_categories();
+
+        let housing = ledger.categories()[0].id();
+        ledger.update_category(
+            housing,
+            UpdateCategory {
+                name: Some("Дом".into()),
+                applicability: Some(Applicability::Both),
+            },
+        )?;
+        let custom = ledger.create_category(CreateCategory {
+            name: "Свои траты".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+
+        let configured = ledger.categories().to_vec();
+        ledger.seed_starter_categories();
+
+        assert_eq!(ledger.categories(), configured.as_slice());
+        assert_eq!(ledger.category(housing)?.name(), "Дом");
+        assert_eq!(ledger.category(custom)?.name(), "Свои траты");
+        Ok(())
+    }
+
+    fn place_expected(
+        categories: &[Category],
+        index: &mut usize,
+        groups: &[ExpectedGroup],
+        applicability: crate::category::Applicability,
+    ) {
+        for group in groups {
+            let parent_id = assert_placed(categories, *index, group.name, None, applicability);
+            *index += 1;
+            place_children(categories, index, parent_id, group.children, applicability);
+        }
+    }
+
+    fn place_children(
+        categories: &[Category],
+        index: &mut usize,
+        parent_id: CategoryId,
+        children: &[&str],
+        applicability: crate::category::Applicability,
+    ) {
+        for child in children {
+            assert_placed(categories, *index, child, Some(parent_id), applicability);
+            *index += 1;
+        }
+    }
+
+    fn group_len(groups: &[ExpectedGroup]) -> usize {
+        groups.iter().map(|group| 1 + group.children.len()).sum()
+    }
+
+    fn assert_expense_at(
+        categories: &[Category],
+        index: usize,
+        name: &str,
+        parent_id: Option<CategoryId>,
+    ) -> CategoryId {
+        use crate::category::Applicability;
+
+        assert_placed(categories, index, name, parent_id, Applicability::Expense)
+    }
+
+    fn assert_placed(
+        categories: &[Category],
+        index: usize,
+        name: &str,
+        parent_id: Option<CategoryId>,
+        applicability: crate::category::Applicability,
+    ) -> CategoryId {
+        let category = &categories[index];
+        assert_eq!(category.name(), name);
+        assert_eq!(category.parent_id(), parent_id);
+        assert_eq!(category.applicability(), applicability);
+        category.id()
     }
 
     #[test]

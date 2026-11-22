@@ -281,7 +281,6 @@ impl Ledger {
 
     /// Одна валюта: списывается и зачисляется `amount`, `to_amount` пустой.
     /// Разные валюты: списывается `amount`, зачисляется `to_amount`.
-    /// В итоги категорий перевод не входит.
     pub fn add_transfer(&mut self, input: NewTransfer) -> Result<(), DomainError> {
         let (from_account_id, to_account_id, amount) = complete_transfer(&input)?;
         if self.accounts.is_empty() {

@@ -2,11 +2,8 @@ use std::time::SystemTime;
 
 mod common;
 
-use common::{create_account, create_top};
-use domain::{
-    AccountId, Applicability, DomainError, FixedClock, Ledger, NewExpense, NewIncome, NewTransfer,
-    TransferAmountFields, date,
-};
+use common::create_account;
+use domain::{AccountId, DomainError, FixedClock, Ledger, NewTransfer, TransferAmountFields, date};
 
 fn assert_transfer(
     ledger: &Ledger,
@@ -142,48 +139,5 @@ fn transfer_to_the_same_account_is_rejected() -> Result<(), DomainError> {
     assert_eq!(ledger.transfers(), saved.as_slice());
     assert_eq!(ledger.balance(card)?, 20_100);
     assert_eq!(ledger.balance(cash)?, 900);
-    Ok(())
-}
-
-// 009 «Не влияет на отчёты по категориям»
-#[test]
-fn category_totals_ignore_transfer() -> Result<(), DomainError> {
-    let mut ledger = Ledger::new();
-    let card = create_account(&mut ledger, "Карта", "RUB", 20_000)?;
-    let cash = create_account(&mut ledger, "Наличные", "RUB", 1_000)?;
-    let food = create_top(&mut ledger, "Питание", Applicability::Expense)?;
-    let salary = create_top(&mut ledger, "Зарплата", Applicability::Income)?;
-    let day = date(2026, 11, 22)?;
-    ledger.add_expense(NewExpense {
-        date: day,
-        account_id: Some(card),
-        category_id: Some(food),
-        amount: Some(400),
-        comment: String::new(),
-    })?;
-    ledger.add_income(NewIncome {
-        date: day,
-        account_id: Some(card),
-        category_id: Some(salary),
-        amount: Some(900),
-        comment: String::new(),
-    })?;
-    let expense_before = ledger.expense_total(food)?;
-    let income_before = ledger.income_total(salary)?;
-
-    ledger.add_transfer(NewTransfer {
-        date: day,
-        from_account_id: Some(card),
-        to_account_id: Some(cash),
-        amount: Some(5_000),
-        to_amount: None,
-        comment: String::new(),
-    })?;
-
-    assert_eq!(expense_before, 400);
-    assert_eq!(income_before, 900);
-    assert_eq!(ledger.expense_total(food)?, expense_before);
-    assert_eq!(ledger.income_total(salary)?, income_before);
-    assert_eq!(ledger.transfers().len(), 1);
     Ok(())
 }

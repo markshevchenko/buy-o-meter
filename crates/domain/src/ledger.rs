@@ -6,8 +6,9 @@ use crate::counterparty::{Counterparty, CounterpartyId, Debt};
 use crate::currency::Currency;
 use crate::error::{DomainError, MissingDebtFields, MissingFields, MissingTransferFields};
 use crate::operation::{
-    Borrow, Expense, Income, Lend, NewBorrow, NewExpense, NewIncome, NewLend, NewTransfer,
-    OperationDraft, Record, RepaymentDirection, Transfer, TransferAmountFields,
+    Borrow, Expense, Income, Lend, NewBorrow, NewExpense, NewIncome, NewLend, NewRepayment,
+    NewTransfer, OperationDraft, Record, Repayment, RepaymentDirection, Transfer,
+    TransferAmountFields,
 };
 use crate::starter::{EXPENSE_TREE, INCOME_TREE, StarterGroup};
 
@@ -467,6 +468,26 @@ impl Ledger {
         &self.borrows
     }
 
+    /// Пустые счёт, контрагент, направление или сумма —
+    /// `DomainError::MissingRepaymentFields`, списки не меняются.
+    /// Нет открытого долга этому имени в выбранном направлении и валюте счёта —
+    /// `DomainError::NoDebt`.
+    /// Сумма больше остатка — `DomainError::RepaymentExceedsDebt`,
+    /// в `remaining` остаток долга; операция не сохраняется.
+    /// `RepaymentDirection::Received` («мне вернули») уменьшает долг мне и увеличивает остаток счёта.
+    /// `RepaymentDirection::Given` («я вернул») уменьшает мой долг и уменьшает остаток счёта.
+    /// Встречное направление не меняется. Имя копируется в операцию.
+    pub fn add_repayment(&mut self, input: NewRepayment) -> Result<(), DomainError> {
+        let _ = input;
+        todo!()
+    }
+
+    /// По дате, внутри дня в порядке добавления.
+    #[must_use]
+    pub fn repayments(&self) -> &[Repayment] {
+        todo!()
+    }
+
     /// Имена для выбора, в порядке появления.
     #[must_use]
     pub fn counterparties(&self) -> &[Counterparty] {
@@ -476,6 +497,7 @@ impl Ledger {
     /// Меняет имя только в списке. В операциях остаётся прежнее.
     /// Нет такого id — `CounterpartyNotFound`.
     /// Ненулевой долг по текущему имени в любую сторону — `CounterpartyHasDebts`, список не меняется.
+    /// Нулевой остаток после возврата не мешает.
     pub fn rename_counterparty(
         &mut self,
         id: CounterpartyId,
@@ -489,19 +511,22 @@ impl Ledger {
     /// Убирает имя из списка. В операциях оно остаётся.
     /// Нет такого id — `CounterpartyNotFound`.
     /// Ненулевой долг по текущему имени в любую сторону — `CounterpartyHasDebts`, список не меняется.
+    /// Нулевой остаток после возврата не мешает.
     pub fn delete_counterparty(&mut self, id: CounterpartyId) -> Result<(), DomainError> {
         self.reject_if_counterparty_has_debts(id)?;
         todo!()
     }
 
-    /// Кому я дал и ещё не получил. Одна запись на имя и валюту, сумма больше нуля.
+    /// Кому я дал и ещё не получил обратно: выдачи минус возвраты «мне вернули».
+    /// Одна запись на имя и валюту, сумма больше нуля.
     /// Встречный долг в этот список не сворачивается.
     #[must_use]
     pub fn debts_to_me(&self) -> Vec<Debt> {
         debt_balances(self, &self.lends, lend_parts)
     }
 
-    /// У кого я взял и ещё не отдал. Одна запись на имя и валюту, сумма больше нуля.
+    /// У кого я взял и ещё не отдал: займы минус возвраты «я вернул».
+    /// Одна запись на имя и валюту, сумма больше нуля.
     /// Встречный долг в этот список не сворачивается.
     #[must_use]
     pub fn my_debts(&self) -> Vec<Debt> {

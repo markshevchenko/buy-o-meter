@@ -428,6 +428,59 @@ impl Borrow {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewRepayment {
+    pub date: SystemTime,
+    pub account_id: Option<AccountId>,
+    pub counterparty: Option<String>,
+    pub direction: Option<RepaymentDirection>,
+    pub amount: Option<i64>,
+}
+
+impl NewRepayment {
+    #[must_use]
+    pub fn open(clock: &impl Clock) -> Self {
+        let _ = clock;
+        todo!()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Repayment {
+    date: SystemTime,
+    account_id: AccountId,
+    counterparty_name: String,
+    direction: RepaymentDirection,
+    amount: i64,
+}
+
+impl Repayment {
+    #[must_use]
+    pub fn date(&self) -> SystemTime {
+        self.date
+    }
+
+    #[must_use]
+    pub fn account_id(&self) -> AccountId {
+        self.account_id
+    }
+
+    #[must_use]
+    pub fn counterparty_name(&self) -> &str {
+        &self.counterparty_name
+    }
+
+    #[must_use]
+    pub fn direction(&self) -> RepaymentDirection {
+        self.direction
+    }
+
+    #[must_use]
+    pub fn amount(&self) -> i64 {
+        self.amount
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::clock::FixedClock;

@@ -13,6 +13,13 @@ pub struct MissingTransferFields {
     pub to_amount: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MissingDebtFields {
+    pub account: bool,
+    pub counterparty: bool,
+    pub amount: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainError {
     AccountNotFound,
@@ -26,6 +33,9 @@ pub enum DomainError {
     UnsuitableTransferTarget,
     MissingFields(MissingFields),
     MissingTransferFields(MissingTransferFields),
+    MissingDebtFields(MissingDebtFields),
+    CounterpartyNotFound,
+    CounterpartyHasDebts,
     MixedCurrencies,
     InvalidDate,
     SameAccount,

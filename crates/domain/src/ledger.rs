@@ -2,11 +2,12 @@ use std::time::SystemTime;
 
 use crate::account::{Account, AccountId, CreateAccount, UpdateAccount};
 use crate::category::{Applicability, Category, CategoryId, CreateCategory, UpdateCategory};
+use crate::counterparty::{Counterparty, CounterpartyId, Debt};
 use crate::currency::Currency;
 use crate::error::{DomainError, MissingFields, MissingTransferFields};
 use crate::operation::{
-    Expense, Income, NewExpense, NewIncome, NewTransfer, OperationDraft, Record,
-    RepaymentDirection, Transfer, TransferAmountFields,
+    Borrow, Expense, Income, Lend, NewBorrow, NewExpense, NewIncome, NewLend, NewTransfer,
+    OperationDraft, Record, RepaymentDirection, Transfer, TransferAmountFields,
 };
 use crate::starter::{EXPENSE_TREE, INCOME_TREE, StarterGroup};
 
@@ -410,6 +411,74 @@ impl Ledger {
         } else {
             Ok(TransferAmountFields::Two)
         }
+    }
+
+    /// Пустые счёт, контрагент или сумма — `DomainError::MissingDebtFields`, списки не меняются.
+    /// Имя копируется в операцию. Новое имя попадает в список контрагентов, известное не дублируется.
+    /// Остаток счёта уменьшается. Долг мне этому имени растёт в валюте счёта.
+    pub fn add_lend(&mut self, input: NewLend) -> Result<(), DomainError> {
+        let _ = input;
+        todo!()
+    }
+
+    /// По дате, внутри дня в порядке добавления.
+    #[must_use]
+    pub fn lends(&self) -> &[Lend] {
+        todo!()
+    }
+
+    /// Пустые счёт, контрагент или сумма — `DomainError::MissingDebtFields`, списки не меняются.
+    /// Имя копируется в операцию. Новое имя попадает в список контрагентов, известное не дублируется.
+    /// Остаток счёта увеличивается. Мой долг этому имени растёт в валюте счёта.
+    pub fn add_borrow(&mut self, input: NewBorrow) -> Result<(), DomainError> {
+        let _ = input;
+        todo!()
+    }
+
+    /// По дате, внутри дня в порядке добавления.
+    #[must_use]
+    pub fn borrows(&self) -> &[Borrow] {
+        todo!()
+    }
+
+    /// Имена для выбора, в порядке появления.
+    #[must_use]
+    pub fn counterparties(&self) -> &[Counterparty] {
+        todo!()
+    }
+
+    /// Меняет имя только в списке. В операциях остаётся прежнее.
+    /// Нет такого id — `CounterpartyNotFound`.
+    /// Ненулевой долг по текущему имени в любую сторону — `CounterpartyHasDebts`, список не меняется.
+    pub fn rename_counterparty(
+        &mut self,
+        id: CounterpartyId,
+        name: String,
+    ) -> Result<(), DomainError> {
+        let _ = (id, name);
+        todo!()
+    }
+
+    /// Убирает имя из списка. В операциях оно остаётся.
+    /// Нет такого id — `CounterpartyNotFound`.
+    /// Ненулевой долг по текущему имени в любую сторону — `CounterpartyHasDebts`, список не меняется.
+    pub fn delete_counterparty(&mut self, id: CounterpartyId) -> Result<(), DomainError> {
+        let _ = id;
+        todo!()
+    }
+
+    /// Кому я дал и ещё не получил. Одна запись на имя и валюту, сумма больше нуля.
+    /// Встречный долг в этот список не сворачивается.
+    #[must_use]
+    pub fn debts_to_me(&self) -> Vec<Debt> {
+        todo!()
+    }
+
+    /// У кого я взял и ещё не отдал. Одна запись на имя и валюту, сумма больше нуля.
+    /// Встречный долг в этот список не сворачивается.
+    #[must_use]
+    pub fn my_debts(&self) -> Vec<Debt> {
+        todo!()
     }
 
     fn credited_amount(

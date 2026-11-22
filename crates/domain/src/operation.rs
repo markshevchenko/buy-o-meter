@@ -300,6 +300,98 @@ impl Transfer {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewLend {
+    pub date: SystemTime,
+    pub account_id: Option<AccountId>,
+    pub counterparty: Option<String>,
+    pub amount: Option<i64>,
+}
+
+impl NewLend {
+    #[must_use]
+    pub fn open(clock: &impl Clock) -> Self {
+        let _ = clock;
+        todo!()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Lend {
+    date: SystemTime,
+    account_id: AccountId,
+    counterparty_name: String,
+    amount: i64,
+}
+
+impl Lend {
+    #[must_use]
+    pub fn date(&self) -> SystemTime {
+        self.date
+    }
+
+    #[must_use]
+    pub fn account_id(&self) -> AccountId {
+        self.account_id
+    }
+
+    #[must_use]
+    pub fn counterparty_name(&self) -> &str {
+        &self.counterparty_name
+    }
+
+    #[must_use]
+    pub fn amount(&self) -> i64 {
+        self.amount
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewBorrow {
+    pub date: SystemTime,
+    pub account_id: Option<AccountId>,
+    pub counterparty: Option<String>,
+    pub amount: Option<i64>,
+}
+
+impl NewBorrow {
+    #[must_use]
+    pub fn open(clock: &impl Clock) -> Self {
+        let _ = clock;
+        todo!()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Borrow {
+    date: SystemTime,
+    account_id: AccountId,
+    counterparty_name: String,
+    amount: i64,
+}
+
+impl Borrow {
+    #[must_use]
+    pub fn date(&self) -> SystemTime {
+        self.date
+    }
+
+    #[must_use]
+    pub fn account_id(&self) -> AccountId {
+        self.account_id
+    }
+
+    #[must_use]
+    pub fn counterparty_name(&self) -> &str {
+        &self.counterparty_name
+    }
+
+    #[must_use]
+    pub fn amount(&self) -> i64 {
+        self.amount
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::clock::FixedClock;

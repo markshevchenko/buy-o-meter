@@ -66,8 +66,13 @@ pub struct NewExpense {
 impl NewExpense {
     #[must_use]
     pub fn open(clock: &impl Clock) -> Self {
-        let _ = clock;
-        todo!()
+        Self {
+            date: clock.today(),
+            account_id: None,
+            category_id: None,
+            amount: None,
+            comment: String::new(),
+        }
     }
 }
 
@@ -104,5 +109,30 @@ impl Expense {
     #[must_use]
     pub fn comment(&self) -> &str {
         &self.comment
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, SystemTime};
+
+    use crate::clock::FixedClock;
+
+    use super::NewExpense;
+
+    fn midnight(days_after_epoch: u32) -> SystemTime {
+        SystemTime::UNIX_EPOCH + Duration::from_secs(24 * 60 * 60) * days_after_epoch
+    }
+
+    #[test]
+    fn open_sets_today_and_leaves_fields_empty() {
+        let today = midnight(4);
+        let form = NewExpense::open(&FixedClock::new(today));
+
+        assert_eq!(form.date, today);
+        assert_eq!(form.account_id, None);
+        assert_eq!(form.category_id, None);
+        assert_eq!(form.amount, None);
+        assert_eq!(form.comment, "");
     }
 }

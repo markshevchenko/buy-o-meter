@@ -140,8 +140,13 @@ pub struct NewIncome {
 impl NewIncome {
     #[must_use]
     pub fn open(clock: &impl Clock) -> Self {
-        let _ = clock;
-        todo!()
+        Self {
+            date: clock.today(),
+            account_id: None,
+            category_id: None,
+            amount: None,
+            comment: String::new(),
+        }
     }
 }
 
@@ -187,12 +192,25 @@ mod tests {
     use crate::date;
     use crate::error::DomainError;
 
-    use super::NewExpense;
+    use super::{NewExpense, NewIncome};
 
     #[test]
     fn open_sets_today_and_leaves_fields_empty() -> Result<(), DomainError> {
         let today = date(2026, 11, 22)?;
         let form = NewExpense::open(&FixedClock::new(today));
+
+        assert_eq!(form.date, today);
+        assert_eq!(form.account_id, None);
+        assert_eq!(form.category_id, None);
+        assert_eq!(form.amount, None);
+        assert_eq!(form.comment, "");
+        Ok(())
+    }
+
+    #[test]
+    fn open_income_sets_today_and_leaves_fields_empty() -> Result<(), DomainError> {
+        let today = date(2026, 11, 22)?;
+        let form = NewIncome::open(&FixedClock::new(today));
 
         assert_eq!(form.date, today);
         assert_eq!(form.account_id, None);

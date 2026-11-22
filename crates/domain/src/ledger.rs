@@ -535,8 +535,10 @@ impl Ledger {
         name: String,
     ) -> Result<(), DomainError> {
         self.reject_if_counterparty_has_debts(id)?;
-        let _ = name;
-        todo!()
+        self.find_counterparty_mut(id)
+            .ok_or(DomainError::CounterpartyNotFound)?
+            .set_name(name);
+        Ok(())
     }
 
     /// Убирает имя из списка. В операциях оно остаётся.
@@ -545,7 +547,9 @@ impl Ledger {
     /// Нулевой остаток после возврата не мешает.
     pub fn delete_counterparty(&mut self, id: CounterpartyId) -> Result<(), DomainError> {
         self.reject_if_counterparty_has_debts(id)?;
-        todo!()
+        self.counterparties
+            .retain(|counterparty| counterparty.id() != id);
+        Ok(())
     }
 
     /// Кому я дал и ещё не получил обратно: выдачи минус возвраты «мне вернули».
@@ -845,6 +849,12 @@ impl Ledger {
 
     fn find_account_mut(&mut self, id: AccountId) -> Option<&mut Account> {
         self.accounts.iter_mut().find(|account| account.id() == id)
+    }
+
+    fn find_counterparty_mut(&mut self, id: CounterpartyId) -> Option<&mut Counterparty> {
+        self.counterparties
+            .iter_mut()
+            .find(|counterparty| counterparty.id() == id)
     }
 
     fn ensure_currency_change_allowed(
@@ -3701,6 +3711,43 @@ mod tests {
         assert_eq!(ledger.balance(cash)?, rub_before);
         assert_eq!(ledger.balance(dollars)?, usd_before);
         assert!(ledger.repayments().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn repaid_counterparty_can_be_renamed_and_deleted() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let day = date(2026, 11, 22)?;
+        ledger.add_lend(NewLend {
+            date: day,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+        ledger.add_repayment(NewRepayment {
+            date: day,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            direction: Some(RepaymentDirection::Received),
+            amount: Some(10_000),
+        })?;
+        assert!(ledger.debts_to_me().is_empty());
+
+        let id = ledger.counterparties()[0].id();
+        ledger.rename_counterparty(id, "Пётр".into())?;
+        assert_eq!(ledger.counterparties()[0].name(), "Пётр");
+        assert_eq!(ledger.lends()[0].counterparty_name(), "Петя");
+        assert_eq!(ledger.repayments()[0].counterparty_name(), "Петя");
+
+        ledger.delete_counterparty(id)?;
+        assert!(ledger.counterparties().is_empty());
+        assert_eq!(ledger.lends()[0].counterparty_name(), "Петя");
+        assert_eq!(ledger.repayments()[0].counterparty_name(), "Петя");
         Ok(())
     }
 }

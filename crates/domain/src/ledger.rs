@@ -449,20 +449,19 @@ fn note_currency(seen: &mut Option<Currency>, currency: &Currency) -> Result<(),
 }
 
 fn complete_income(input: &NewIncome) -> Result<(AccountId, CategoryId, i64), DomainError> {
-    match (input.account_id, input.category_id, input.amount) {
-        (Some(account_id), Some(category_id), Some(amount)) => {
-            Ok((account_id, category_id, amount))
-        }
-        _ => Err(DomainError::MissingFields(MissingFields {
-            account: true,
-            category: true,
-            amount: true,
-        })),
-    }
+    complete_fields(input.account_id, input.category_id, input.amount)
 }
 
 fn complete_expense(input: &NewExpense) -> Result<(AccountId, CategoryId, i64), DomainError> {
-    match (input.account_id, input.category_id, input.amount) {
+    complete_fields(input.account_id, input.category_id, input.amount)
+}
+
+fn complete_fields(
+    account_id: Option<AccountId>,
+    category_id: Option<CategoryId>,
+    amount: Option<i64>,
+) -> Result<(AccountId, CategoryId, i64), DomainError> {
+    match (account_id, category_id, amount) {
         (Some(account_id), Some(category_id), Some(amount)) => {
             Ok((account_id, category_id, amount))
         }
@@ -1540,6 +1539,59 @@ mod tests {
         assert_eq!(incomes[0].category_id(), category_id);
         assert_eq!(incomes[0].amount(), 450);
         assert_eq!(incomes[0].comment(), "Оклад");
+        Ok(())
+    }
+
+    fn ledger_with_cash_and_salary() -> Result<(Ledger, AccountId, CategoryId), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let account_id = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 10_000,
+        })?;
+        let category_id = ledger.create_category(CreateCategory {
+            name: "Зарплата".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Income),
+        })?;
+        Ok((ledger, account_id, category_id))
+    }
+
+    fn assert_income_rejected(missing: MissingFields) -> Result<(), DomainError> {
+        let (mut ledger, account_id, category_id) = ledger_with_cash_and_salary()?;
+        let err = ledger.add_income(NewIncome {
+            date: date(2026, 11, 22)?,
+            account_id: omit_if(missing.account, account_id),
+            category_id: omit_if(missing.category, category_id),
+            amount: omit_if(missing.amount, 100),
+            comment: String::new(),
+        });
+        assert_eq!(err, Err(DomainError::MissingFields(missing)));
+        assert!(ledger.incomes().is_empty());
+        assert_eq!(ledger.balance(account_id)?, 10_000);
+        assert_eq!(ledger.income_total(category_id)?, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn income_without_account_category_or_amount_is_rejected() -> Result<(), DomainError> {
+        assert_income_rejected(MissingFields {
+            account: true,
+            category: false,
+            amount: false,
+        })?;
+        assert_income_rejected(MissingFields {
+            account: false,
+            category: true,
+            amount: false,
+        })?;
+        assert_income_rejected(MissingFields {
+            account: false,
+            category: false,
+            amount: true,
+        })?;
         Ok(())
     }
 

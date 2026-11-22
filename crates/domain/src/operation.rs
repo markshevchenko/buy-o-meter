@@ -183,19 +183,15 @@ impl Income {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, SystemTime};
-
     use crate::clock::FixedClock;
+    use crate::date;
+    use crate::error::DomainError;
 
     use super::NewExpense;
 
-    fn midnight(days_after_epoch: u32) -> SystemTime {
-        SystemTime::UNIX_EPOCH + Duration::from_secs(24 * 60 * 60) * days_after_epoch
-    }
-
     #[test]
-    fn open_sets_today_and_leaves_fields_empty() {
-        let today = midnight(4);
+    fn open_sets_today_and_leaves_fields_empty() -> Result<(), DomainError> {
+        let today = date(2026, 11, 22)?;
         let form = NewExpense::open(&FixedClock::new(today));
 
         assert_eq!(form.date, today);
@@ -203,5 +199,6 @@ mod tests {
         assert_eq!(form.category_id, None);
         assert_eq!(form.amount, None);
         assert_eq!(form.comment, "");
+        Ok(())
     }
 }

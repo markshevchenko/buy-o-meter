@@ -539,6 +539,7 @@ mod tests {
     use super::*;
     use crate::currency::Currency;
     use crate::error::MissingFields;
+    use crate::{add_days, date};
 
     struct ExpectedGroup {
         name: &'static str,
@@ -1176,7 +1177,6 @@ mod tests {
     #[test]
     fn saved_expense_keeps_date_account_category_amount_and_comment() -> Result<(), DomainError> {
         use crate::category::Applicability;
-        use std::time::{Duration, SystemTime};
 
         let mut ledger = Ledger::new();
         let account_id = ledger.create_account(CreateAccount {
@@ -1189,7 +1189,7 @@ mod tests {
             parent_id: None,
             applicability: Some(Applicability::Expense),
         })?;
-        let date = SystemTime::UNIX_EPOCH + Duration::from_secs(24 * 60 * 60);
+        let date = date(2026, 11, 22)?;
 
         ledger.add_expense(NewExpense {
             date,
@@ -1231,11 +1231,9 @@ mod tests {
     }
 
     fn assert_expense_rejected(missing: MissingFields) -> Result<(), DomainError> {
-        use std::time::SystemTime;
-
         let (mut ledger, account_id, category_id) = ledger_with_cash_and_groceries()?;
         let err = ledger.add_expense(NewExpense {
-            date: SystemTime::UNIX_EPOCH,
+            date: date(2026, 11, 22)?,
             account_id: omit_if(missing.account, account_id),
             category_id: omit_if(missing.category, category_id),
             amount: omit_if(missing.amount, 100),
@@ -1271,7 +1269,6 @@ mod tests {
     #[test]
     fn saved_expense_reduces_only_its_account_balance() -> Result<(), DomainError> {
         use crate::category::Applicability;
-        use std::time::SystemTime;
 
         let mut ledger = Ledger::new();
         let rub = ledger.create_account(CreateAccount {
@@ -1291,7 +1288,7 @@ mod tests {
         })?;
 
         ledger.add_expense(NewExpense {
-            date: SystemTime::UNIX_EPOCH,
+            date: date(2026, 11, 22)?,
             account_id: Some(usd),
             category_id: Some(category_id),
             amount: Some(15),
@@ -1308,7 +1305,6 @@ mod tests {
     #[test]
     fn expense_on_parent_counts_only_toward_that_category() -> Result<(), DomainError> {
         use crate::category::Applicability;
-        use std::time::SystemTime;
 
         let mut ledger = Ledger::new();
         let account_id = ledger.create_account(CreateAccount {
@@ -1328,7 +1324,7 @@ mod tests {
         })?;
 
         ledger.add_expense(NewExpense {
-            date: SystemTime::UNIX_EPOCH,
+            date: date(2026, 11, 22)?,
             account_id: Some(account_id),
             category_id: Some(food),
             amount: Some(1_200),
@@ -1344,7 +1340,6 @@ mod tests {
     #[test]
     fn expense_on_earlier_date_appends_to_that_day() -> Result<(), DomainError> {
         use crate::category::Applicability;
-        use std::time::{Duration, SystemTime};
 
         let mut ledger = Ledger::new();
         let account_id = ledger.create_account(CreateAccount {
@@ -1357,8 +1352,8 @@ mod tests {
             parent_id: None,
             applicability: Some(Applicability::Expense),
         })?;
-        let yesterday = SystemTime::UNIX_EPOCH;
-        let today = yesterday + Duration::from_secs(24 * 60 * 60);
+        let yesterday = date(2026, 11, 21)?;
+        let today = add_days(yesterday, 1)?;
         let expense = |date, amount, comment: &str| NewExpense {
             date,
             account_id: Some(account_id),
@@ -1386,7 +1381,6 @@ mod tests {
     #[test]
     fn child_expense_counts_in_the_parent_total() -> Result<(), DomainError> {
         use crate::category::Applicability;
-        use std::time::SystemTime;
 
         let mut ledger = Ledger::new();
         let account_id = ledger.create_account(CreateAccount {
@@ -1405,7 +1399,7 @@ mod tests {
             applicability: None,
         })?;
         ledger.add_expense(NewExpense {
-            date: SystemTime::UNIX_EPOCH,
+            date: date(2026, 11, 22)?,
             account_id: Some(account_id),
             category_id: Some(groceries),
             amount: Some(400),
@@ -1420,7 +1414,6 @@ mod tests {
     #[test]
     fn expense_total_rejects_mixed_currencies() -> Result<(), DomainError> {
         use crate::category::Applicability;
-        use std::time::SystemTime;
 
         let mut ledger = Ledger::new();
         let rub = ledger.create_account(CreateAccount {
@@ -1439,14 +1432,14 @@ mod tests {
             applicability: Some(Applicability::Expense),
         })?;
         ledger.add_expense(NewExpense {
-            date: SystemTime::UNIX_EPOCH,
+            date: date(2026, 11, 22)?,
             account_id: Some(rub),
             category_id: Some(food),
             amount: Some(1_000),
             comment: String::new(),
         })?;
         ledger.add_expense(NewExpense {
-            date: SystemTime::UNIX_EPOCH,
+            date: date(2026, 11, 22)?,
             account_id: Some(usd),
             category_id: Some(food),
             amount: Some(15),
@@ -1465,14 +1458,12 @@ mod tests {
 
     #[test]
     fn expense_with_unknown_account_or_category_is_rejected() -> Result<(), DomainError> {
-        use std::time::SystemTime;
-
         use crate::account::AccountId;
         use crate::category::CategoryId;
 
         let (mut ledger, account_id, category_id) = ledger_with_cash_and_groceries()?;
         let unknown_account = ledger.add_expense(NewExpense {
-            date: SystemTime::UNIX_EPOCH,
+            date: date(2026, 11, 22)?,
             account_id: Some(AccountId::from_u64(99)),
             category_id: Some(category_id),
             amount: Some(100),
@@ -1483,7 +1474,7 @@ mod tests {
         assert_eq!(ledger.balance(account_id)?, 10_000);
 
         let unknown_category = ledger.add_expense(NewExpense {
-            date: SystemTime::UNIX_EPOCH,
+            date: date(2026, 11, 22)?,
             account_id: Some(account_id),
             category_id: Some(CategoryId::from_u64(99)),
             amount: Some(100),
@@ -1496,15 +1487,13 @@ mod tests {
     }
 
     #[test]
-    fn expense_without_any_account_is_rejected() {
-        use std::time::SystemTime;
-
+    fn expense_without_any_account_is_rejected() -> Result<(), DomainError> {
         use crate::account::AccountId;
         use crate::category::CategoryId;
 
         let mut ledger = Ledger::new();
         let err = ledger.add_expense(NewExpense {
-            date: SystemTime::UNIX_EPOCH,
+            date: date(2026, 11, 22)?,
             account_id: Some(AccountId::from_u64(1)),
             category_id: Some(CategoryId::from_u64(1)),
             amount: Some(1),
@@ -1512,5 +1501,6 @@ mod tests {
         });
         assert_eq!(err, Err(DomainError::AccountRequired));
         assert!(ledger.expenses().is_empty());
+        Ok(())
     }
 }

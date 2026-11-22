@@ -128,6 +128,59 @@ impl Expense {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewIncome {
+    pub date: SystemTime,
+    pub account_id: Option<AccountId>,
+    pub category_id: Option<CategoryId>,
+    pub amount: Option<i64>,
+    pub comment: String,
+}
+
+impl NewIncome {
+    #[must_use]
+    pub fn open(clock: &impl Clock) -> Self {
+        let _ = clock;
+        todo!()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Income {
+    date: SystemTime,
+    account_id: AccountId,
+    category_id: CategoryId,
+    amount: i64,
+    comment: String,
+}
+
+impl Income {
+    #[must_use]
+    pub fn date(&self) -> SystemTime {
+        self.date
+    }
+
+    #[must_use]
+    pub fn account_id(&self) -> AccountId {
+        self.account_id
+    }
+
+    #[must_use]
+    pub fn category_id(&self) -> CategoryId {
+        self.category_id
+    }
+
+    #[must_use]
+    pub fn amount(&self) -> i64 {
+        self.amount
+    }
+
+    #[must_use]
+    pub fn comment(&self) -> &str {
+        &self.comment
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, SystemTime};

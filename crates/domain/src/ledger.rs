@@ -205,6 +205,9 @@ impl Ledger {
         if self.has_subcategories(id) {
             return Err(DomainError::CategoryHasSubcategories);
         }
+        if self.has_expenses(id) && transfer_to.is_none() {
+            return Err(DomainError::TransferTargetRequired);
+        }
         if let Some(target) = transfer_to {
             self.move_operations(id, target);
         }
@@ -2625,6 +2628,39 @@ mod tests {
             ledger.expense_total(lunches),
             Err(DomainError::CategoryNotFound)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn deleting_expenses_without_a_target_keeps_the_category() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let account_id = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 10_000,
+        })?;
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        ledger.add_expense(NewExpense {
+            date: date(2026, 11, 22)?,
+            account_id: Some(account_id),
+            category_id: Some(food),
+            amount: Some(800),
+            comment: String::new(),
+        })?;
+        let expenses_before = ledger.expenses().to_vec();
+
+        let err = ledger.delete_category(food, None);
+
+        assert_eq!(err, Err(DomainError::TransferTargetRequired));
+        assert_eq!(ledger.category(food)?.name(), "Питание");
+        assert_eq!(ledger.expenses(), expenses_before.as_slice());
+        assert_eq!(ledger.expense_total(food)?, 800);
         Ok(())
     }
 }

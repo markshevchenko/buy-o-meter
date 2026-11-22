@@ -86,6 +86,22 @@ pub struct Expense {
 }
 
 impl Expense {
+    pub(crate) fn new(
+        date: SystemTime,
+        account_id: AccountId,
+        category_id: CategoryId,
+        amount: i64,
+        comment: String,
+    ) -> Self {
+        Self {
+            date,
+            account_id,
+            category_id,
+            amount,
+            comment,
+        }
+    }
+
     #[must_use]
     pub fn date(&self) -> SystemTime {
         self.date

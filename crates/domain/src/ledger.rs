@@ -1,6 +1,6 @@
 use crate::account::{Account, AccountId, CreateAccount, UpdateAccount};
 use crate::category::{Applicability, Category, CategoryId, CreateCategory, UpdateCategory};
-use crate::error::DomainError;
+use crate::error::{DomainError, MissingFields};
 use crate::operation::{Expense, NewExpense, OperationDraft, Record, RepaymentDirection};
 use crate::starter::{EXPENSE_TREE, INCOME_TREE, StarterGroup};
 
@@ -13,6 +13,7 @@ pub struct Ledger {
     categories: Vec<Category>,
     starter_seeded: bool,
     records: Vec<Record>,
+    expenses: Vec<Expense>,
 }
 
 impl Ledger {
@@ -26,6 +27,7 @@ impl Ledger {
             categories: Vec::new(),
             starter_seeded: false,
             records: Vec::new(),
+            expenses: Vec::new(),
         }
     }
 
@@ -201,14 +203,21 @@ impl Ledger {
     /// Пустые счёт, категория или сумма — `DomainError::MissingFields`, список не меняется.
     /// Сумма уменьшает остаток счёта и входит в итог категории.
     pub fn add_expense(&mut self, input: NewExpense) -> Result<(), DomainError> {
-        let _ = input;
-        todo!()
+        let (account_id, category_id, amount) = complete_expense(&input)?;
+        self.expenses.push(Expense::new(
+            input.date,
+            account_id,
+            category_id,
+            amount,
+            input.comment,
+        ));
+        Ok(())
     }
 
     /// По дате, внутри дня в порядке добавления.
     #[must_use]
     pub fn expenses(&self) -> &[Expense] {
-        todo!()
+        &self.expenses
     }
 
     fn prepare_category(&self, mut input: CreateCategory) -> Result<CreateCategory, DomainError> {
@@ -339,6 +348,19 @@ impl Ledger {
         self.operations
             .iter()
             .any(|operation| operation_touches_account(operation, id))
+    }
+}
+
+fn complete_expense(input: &NewExpense) -> Result<(AccountId, CategoryId, i64), DomainError> {
+    match (input.account_id, input.category_id, input.amount) {
+        (Some(account_id), Some(category_id), Some(amount)) => {
+            Ok((account_id, category_id, amount))
+        }
+        _ => Err(DomainError::MissingFields(MissingFields {
+            account: true,
+            category: true,
+            amount: true,
+        })),
     }
 }
 
@@ -1059,6 +1081,42 @@ mod tests {
             },
         );
         assert_eq!(err, Err(DomainError::CurrencyChangeNotAllowed));
+        Ok(())
+    }
+
+    #[test]
+    fn saved_expense_keeps_date_account_category_amount_and_comment() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+        use std::time::{Duration, SystemTime};
+
+        let mut ledger = Ledger::new();
+        let account_id = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 10_000,
+        })?;
+        let category_id = ledger.create_category(CreateCategory {
+            name: "Продукты".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let date = SystemTime::UNIX_EPOCH + Duration::from_secs(24 * 60 * 60);
+
+        ledger.add_expense(NewExpense {
+            date,
+            account_id: Some(account_id),
+            category_id: Some(category_id),
+            amount: Some(450),
+            comment: "Хлеб".into(),
+        })?;
+
+        let expenses = ledger.expenses();
+        assert_eq!(expenses.len(), 1);
+        assert_eq!(expenses[0].date(), date);
+        assert_eq!(expenses[0].account_id(), account_id);
+        assert_eq!(expenses[0].category_id(), category_id);
+        assert_eq!(expenses[0].amount(), 450);
+        assert_eq!(expenses[0].comment(), "Хлеб");
         Ok(())
     }
 }

@@ -17,6 +17,7 @@ pub struct Ledger {
     starter_seeded: bool,
     records: Vec<Record>,
     expenses: Vec<Expense>,
+    incomes: Vec<Income>,
 }
 
 impl Ledger {
@@ -31,6 +32,7 @@ impl Ledger {
             starter_seeded: false,
             records: Vec::new(),
             expenses: Vec::new(),
+            incomes: Vec::new(),
         }
     }
 
@@ -262,14 +264,21 @@ impl Ledger {
     /// Пустые счёт, категория или сумма — `DomainError::MissingFields`, список не меняется.
     /// Сумма увеличивает остаток счёта и входит в итог категории.
     pub fn add_income(&mut self, input: NewIncome) -> Result<(), DomainError> {
-        let _ = input;
-        todo!()
+        let (account_id, category_id, amount) = complete_income(&input)?;
+        self.incomes.push(Income::new(
+            input.date,
+            account_id,
+            category_id,
+            amount,
+            input.comment,
+        ));
+        Ok(())
     }
 
     /// По дате, внутри дня в порядке добавления.
     #[must_use]
     pub fn incomes(&self) -> &[Income] {
-        todo!()
+        &self.incomes
     }
 
     fn place_expense(&mut self, expense: Expense) {
@@ -437,6 +446,19 @@ fn note_currency(seen: &mut Option<Currency>, currency: &Currency) -> Result<(),
         Some(_) => return Err(DomainError::MixedCurrencies),
     }
     Ok(())
+}
+
+fn complete_income(input: &NewIncome) -> Result<(AccountId, CategoryId, i64), DomainError> {
+    match (input.account_id, input.category_id, input.amount) {
+        (Some(account_id), Some(category_id), Some(amount)) => {
+            Ok((account_id, category_id, amount))
+        }
+        _ => Err(DomainError::MissingFields(MissingFields {
+            account: true,
+            category: true,
+            amount: true,
+        })),
+    }
 }
 
 fn complete_expense(input: &NewExpense) -> Result<(AccountId, CategoryId, i64), DomainError> {
@@ -1483,6 +1505,41 @@ mod tests {
         assert_eq!(unknown_category, Err(DomainError::CategoryNotFound));
         assert!(ledger.expenses().is_empty());
         assert_eq!(ledger.expense_total(category_id)?, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn saved_income_keeps_date_account_category_amount_and_comment() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let account_id = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 10_000,
+        })?;
+        let category_id = ledger.create_category(CreateCategory {
+            name: "Зарплата".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Income),
+        })?;
+        let date = date(2026, 11, 22)?;
+
+        ledger.add_income(NewIncome {
+            date,
+            account_id: Some(account_id),
+            category_id: Some(category_id),
+            amount: Some(450),
+            comment: "Оклад".into(),
+        })?;
+
+        let incomes = ledger.incomes();
+        assert_eq!(incomes.len(), 1);
+        assert_eq!(incomes[0].date(), date);
+        assert_eq!(incomes[0].account_id(), account_id);
+        assert_eq!(incomes[0].category_id(), category_id);
+        assert_eq!(incomes[0].amount(), 450);
+        assert_eq!(incomes[0].comment(), "Оклад");
         Ok(())
     }
 

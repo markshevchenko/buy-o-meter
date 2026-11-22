@@ -363,13 +363,7 @@ impl Ledger {
             currency,
             self.expense_of(id),
             &self.expenses,
-            |expense| {
-                (
-                    expense.category_id(),
-                    expense.account_id(),
-                    expense.amount(),
-                )
-            },
+            expense_parts,
         )
     }
 
@@ -378,9 +372,13 @@ impl Ledger {
         id: CategoryId,
         currency: &mut Option<Currency>,
     ) -> Result<i64, DomainError> {
-        self.saved_total(id, currency, self.income_of(id), &self.incomes, |income| {
-            (income.category_id(), income.account_id(), income.amount())
-        })
+        self.saved_total(
+            id,
+            currency,
+            self.income_of(id),
+            &self.incomes,
+            income_parts,
+        )
     }
 
     fn saved_total<T>(
@@ -473,6 +471,23 @@ impl Ledger {
             .iter()
             .any(|operation| operation_touches_account(operation, id))
     }
+}
+
+fn expense_parts(expense: &Expense) -> (CategoryId, AccountId, i64) {
+    (
+        expense.category_id(),
+        expense.account_id(),
+        expense.amount(),
+    )
+}
+
+#[rustfmt::skip]
+fn income_parts(income: &Income) -> (CategoryId, AccountId, i64) {
+    (
+        income.category_id(),
+        income.account_id(),
+        income.amount(),
+    )
 }
 
 fn note_currency(seen: &mut Option<Currency>, currency: &Currency) -> Result<(), DomainError> {
@@ -1273,20 +1288,7 @@ mod tests {
     }
 
     fn ledger_with_cash_and_groceries() -> Result<(Ledger, AccountId, CategoryId), DomainError> {
-        use crate::category::Applicability;
-
-        let mut ledger = Ledger::new();
-        let account_id = ledger.create_account(CreateAccount {
-            name: "Наличные".into(),
-            currency: Currency::new("RUB"),
-            opening_balance: 10_000,
-        })?;
-        let category_id = ledger.create_category(CreateCategory {
-            name: "Продукты".into(),
-            parent_id: None,
-            applicability: Some(Applicability::Expense),
-        })?;
-        Ok((ledger, account_id, category_id))
+        ledger_with_cash("Продукты", crate::category::Applicability::Expense)
     }
 
     fn omit_if<T>(missing: bool, value: T) -> Option<T> {
@@ -1805,8 +1807,13 @@ mod tests {
     }
 
     fn ledger_with_cash_and_salary() -> Result<(Ledger, AccountId, CategoryId), DomainError> {
-        use crate::category::Applicability;
+        ledger_with_cash("Зарплата", crate::category::Applicability::Income)
+    }
 
+    fn ledger_with_cash(
+        category_name: &str,
+        applicability: crate::category::Applicability,
+    ) -> Result<(Ledger, AccountId, CategoryId), DomainError> {
         let mut ledger = Ledger::new();
         let account_id = ledger.create_account(CreateAccount {
             name: "Наличные".into(),
@@ -1814,9 +1821,9 @@ mod tests {
             opening_balance: 10_000,
         })?;
         let category_id = ledger.create_category(CreateCategory {
-            name: "Зарплата".into(),
+            name: category_name.into(),
             parent_id: None,
-            applicability: Some(Applicability::Income),
+            applicability: Some(applicability),
         })?;
         Ok((ledger, account_id, category_id))
     }

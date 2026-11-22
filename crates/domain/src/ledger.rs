@@ -193,7 +193,7 @@ impl Ledger {
     }
 
     pub fn income_total(&self, id: CategoryId) -> Result<i64, DomainError> {
-        self.rolled_total(id, Self::income_of)
+        Ok(self.rolled_total(id, Self::income_of)? + self.saved_income_of(id))
     }
 
     #[must_use]
@@ -383,6 +383,14 @@ impl Ledger {
             } => Some((*category_id, *amount)),
             Record::Income { .. } => None,
         })
+    }
+
+    fn saved_income_of(&self, id: CategoryId) -> i64 {
+        self.incomes
+            .iter()
+            .filter(|income| income.category_id() == id)
+            .map(|income| income.amount())
+            .sum()
     }
 
     fn income_of(&self, id: CategoryId) -> i64 {
@@ -1396,6 +1404,41 @@ mod tests {
         assert_eq!(ledger.expenses()[0].category_id(), food);
         assert_eq!(ledger.expense_total(food)?, 1_200);
         assert_eq!(ledger.expense_total(groceries)?, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn income_on_parent_counts_only_toward_that_category() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let account_id = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 10_000,
+        })?;
+        let salary = ledger.create_category(CreateCategory {
+            name: "Зарплата".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Income),
+        })?;
+        let bonus = ledger.create_category(CreateCategory {
+            name: "Премия".into(),
+            parent_id: Some(salary),
+            applicability: None,
+        })?;
+
+        ledger.add_income(NewIncome {
+            date: date(2026, 11, 22)?,
+            account_id: Some(account_id),
+            category_id: Some(salary),
+            amount: Some(1_200),
+            comment: String::new(),
+        })?;
+
+        assert_eq!(ledger.incomes()[0].category_id(), salary);
+        assert_eq!(ledger.income_total(salary)?, 1_200);
+        assert_eq!(ledger.income_total(bonus)?, 0);
         Ok(())
     }
 

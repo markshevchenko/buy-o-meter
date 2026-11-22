@@ -88,3 +88,30 @@ pub(crate) const EXPENSE_TREE: &[StarterGroup] = &[
         ],
     },
 ];
+
+#[rustfmt::skip]
+pub(crate) const INCOME_TREE: &[StarterGroup] = &[
+    StarterGroup {
+        name: "Активный доход",
+        children: &[
+            "Зарплата (оклад)",
+            "Премии и бонусы",
+            "Подработка",
+        ],
+    },
+    StarterGroup {
+        name: "Пассивный доход",
+        children: &[
+            "Проценты по вкладам",
+            "Кэшбэк",
+        ],
+    },
+    StarterGroup {
+        name: "Прочее",
+        children: &[
+            "Прочие доходы",
+            "Купоны по облигациям",
+            "Подарки",
+        ],
+    },
+];

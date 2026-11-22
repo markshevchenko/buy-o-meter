@@ -201,18 +201,44 @@ impl Ledger {
         id: CategoryId,
         transfer_to: Option<CategoryId>,
     ) -> Result<(), DomainError> {
-        self.find_category(id).ok_or(DomainError::CategoryNotFound)?;
+        self.find_category(id)
+            .ok_or(DomainError::CategoryNotFound)?;
         if self.has_subcategories(id) {
             return Err(DomainError::CategoryHasSubcategories);
         }
-        if self.has_expenses(id) && transfer_to.is_none() {
-            return Err(DomainError::TransferTargetRequired);
-        }
-        if let Some(target) = transfer_to {
-            self.move_operations(id, target);
-        }
+        self.relocate_expenses(id, transfer_to)?;
         self.remove_category(id);
         Ok(())
+    }
+
+    fn relocate_expenses(
+        &mut self,
+        id: CategoryId,
+        transfer_to: Option<CategoryId>,
+    ) -> Result<(), DomainError> {
+        if !self.has_expenses(id) {
+            return Ok(());
+        }
+        let target = transfer_to.ok_or(DomainError::TransferTargetRequired)?;
+        self.ensure_transfer_target(id, target)?;
+        self.move_operations(id, target);
+        Ok(())
+    }
+
+    fn ensure_transfer_target(
+        &self,
+        id: CategoryId,
+        target: CategoryId,
+    ) -> Result<(), DomainError> {
+        let suitable = self
+            .transfer_targets(id)?
+            .iter()
+            .any(|category| category.id() == target);
+        if suitable {
+            Ok(())
+        } else {
+            Err(DomainError::UnsuitableTransferTarget)
+        }
     }
 
     fn remove_category(&mut self, id: CategoryId) {
@@ -2516,7 +2542,10 @@ mod tests {
                 .iter()
                 .any(|category| category.id() == groceries)
         );
-        assert_eq!(ledger.category(groceries), Err(DomainError::CategoryNotFound));
+        assert_eq!(
+            ledger.category(groceries),
+            Err(DomainError::CategoryNotFound)
+        );
         assert!(
             !ledger
                 .categories_for_expense()
@@ -2658,6 +2687,53 @@ mod tests {
         let err = ledger.delete_category(food, None);
 
         assert_eq!(err, Err(DomainError::TransferTargetRequired));
+        assert_eq!(ledger.category(food)?.name(), "Питание");
+        assert_eq!(ledger.expenses(), expenses_before.as_slice());
+        assert_eq!(ledger.expense_total(food)?, 800);
+        Ok(())
+    }
+
+    #[test]
+    fn unsuitable_transfer_target_keeps_the_category() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let account_id = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 10_000,
+        })?;
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let salary = ledger.create_category(CreateCategory {
+            name: "Зарплата".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Income),
+        })?;
+        ledger.add_expense(NewExpense {
+            date: date(2026, 11, 22)?,
+            account_id: Some(account_id),
+            category_id: Some(food),
+            amount: Some(800),
+            comment: String::new(),
+        })?;
+        let expenses_before = ledger.expenses().to_vec();
+
+        assert_eq!(
+            ledger.delete_category(food, Some(salary)),
+            Err(DomainError::UnsuitableTransferTarget)
+        );
+        assert_eq!(
+            ledger.delete_category(food, Some(food)),
+            Err(DomainError::UnsuitableTransferTarget)
+        );
+        assert_eq!(
+            ledger.delete_category(food, Some(CategoryId::from_u64(99))),
+            Err(DomainError::UnsuitableTransferTarget)
+        );
         assert_eq!(ledger.category(food)?.name(), "Питание");
         assert_eq!(ledger.expenses(), expenses_before.as_slice());
         assert_eq!(ledger.expense_total(food)?, 800);

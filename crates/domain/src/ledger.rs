@@ -2,6 +2,7 @@ use crate::account::{Account, AccountId, CreateAccount, UpdateAccount};
 use crate::category::{Applicability, Category, CategoryId, CreateCategory, UpdateCategory};
 use crate::error::DomainError;
 use crate::operation::{OperationDraft, Record, RepaymentDirection};
+use crate::starter::{EXPENSE_TREE, StarterGroup};
 
 #[derive(Debug)]
 pub struct Ledger {
@@ -68,7 +69,45 @@ impl Ledger {
     /// Создаёт стартовый набор категорий один раз.
     /// Повторный вызов не добавляет категории и не откатывает правки.
     pub fn seed_starter_categories(&mut self) {
-        todo!()
+        self.seed_tree(EXPENSE_TREE, Applicability::Expense);
+    }
+
+    fn seed_tree(&mut self, tree: &[StarterGroup], applicability: Applicability) {
+        for group in tree {
+            self.seed_group(group, applicability);
+        }
+    }
+
+    fn seed_group(&mut self, group: &StarterGroup, applicability: Applicability) {
+        let Some(parent_id) = self.seed_category(group.name, None, applicability) else {
+            return;
+        };
+        self.seed_children(parent_id, group.children, applicability);
+    }
+
+    fn seed_children(
+        &mut self,
+        parent_id: CategoryId,
+        children: &[&str],
+        applicability: Applicability,
+    ) {
+        for child in children {
+            let _ = self.seed_category(child, Some(parent_id), applicability);
+        }
+    }
+
+    fn seed_category(
+        &mut self,
+        name: &str,
+        parent_id: Option<CategoryId>,
+        applicability: Applicability,
+    ) -> Option<CategoryId> {
+        self.create_category(CreateCategory {
+            name: name.to_owned(),
+            parent_id,
+            applicability: Some(applicability),
+        })
+        .ok()
     }
 
     pub fn create_category(&mut self, input: CreateCategory) -> Result<CategoryId, DomainError> {
@@ -717,6 +756,39 @@ mod tests {
         assert_eq!(ledger.category(id)?.applicability(), Applicability::Expense);
         assert_eq!(ledger.category(id)?.parent_id(), None);
         Ok(())
+    }
+
+    #[test]
+    fn seed_starter_categories_creates_housing_group() {
+        let mut ledger = Ledger::new();
+        assert!(ledger.categories().is_empty());
+
+        ledger.seed_starter_categories();
+
+        let categories = ledger.categories();
+        let housing_id = assert_expense_at(categories, 0, "Жильё", None);
+        assert_expense_at(categories, 1, "Аренда/покупка/ипотека", Some(housing_id));
+        assert_expense_at(categories, 2, "ЖКХ", Some(housing_id));
+        assert_expense_at(categories, 3, "Интернет и связь", Some(housing_id));
+        assert_expense_at(categories, 4, "Ремонт и мебель", Some(housing_id));
+        assert_expense_at(categories, 5, "Техника", Some(housing_id));
+        assert_expense_at(categories, 6, "Хозтовары", Some(housing_id));
+        assert_eq!(categories.len(), 7);
+    }
+
+    fn assert_expense_at(
+        categories: &[Category],
+        index: usize,
+        name: &str,
+        parent_id: Option<CategoryId>,
+    ) -> CategoryId {
+        use crate::category::Applicability;
+
+        let category = &categories[index];
+        assert_eq!(category.name(), name);
+        assert_eq!(category.parent_id(), parent_id);
+        assert_eq!(category.applicability(), Applicability::Expense);
+        category.id()
     }
 
     #[test]

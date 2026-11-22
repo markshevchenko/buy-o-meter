@@ -4,6 +4,7 @@ mod currency;
 mod error;
 mod ledger;
 mod operation;
+mod starter;
 
 pub use account::{Account, AccountId, CreateAccount, UpdateAccount};
 pub use category::{Applicability, Category, CategoryId, CreateCategory, UpdateCategory};

@@ -1,12 +1,16 @@
 use crate::account::{Account, AccountId, CreateAccount, UpdateAccount};
+use crate::category::{Applicability, Category, CategoryId, CreateCategory, UpdateCategory};
 use crate::error::DomainError;
-use crate::operation::{OperationDraft, RepaymentDirection};
+use crate::operation::{OperationDraft, Record, RepaymentDirection};
 
 #[derive(Debug)]
 pub struct Ledger {
     next_account_id: u64,
     accounts: Vec<Account>,
     operations: Vec<OperationDraft>,
+    next_category_id: u64,
+    categories: Vec<Category>,
+    records: Vec<Record>,
 }
 
 impl Ledger {
@@ -16,6 +20,9 @@ impl Ledger {
             next_account_id: 1,
             accounts: Vec::new(),
             operations: Vec::new(),
+            next_category_id: 1,
+            categories: Vec::new(),
+            records: Vec::new(),
         }
     }
 
@@ -58,12 +65,188 @@ impl Ledger {
         Ok(())
     }
 
+    pub fn create_category(&mut self, input: CreateCategory) -> Result<CategoryId, DomainError> {
+        let input = self.prepare_category(input)?;
+        let id = CategoryId::from_u64(self.next_category_id);
+        let category = Category::new(id, input)?;
+        self.next_category_id += 1;
+        self.categories.push(category);
+        Ok(id)
+    }
+
+    #[must_use]
+    pub fn categories(&self) -> &[Category] {
+        &self.categories
+    }
+
+    pub fn category(&self, id: CategoryId) -> Result<&Category, DomainError> {
+        self.find_category(id).ok_or(DomainError::CategoryNotFound)
+    }
+
+    pub fn update_category(
+        &mut self,
+        id: CategoryId,
+        input: UpdateCategory,
+    ) -> Result<(), DomainError> {
+        self.find_category_mut(id)
+            .ok_or(DomainError::CategoryNotFound)?
+            .update(input);
+        Ok(())
+    }
+
+    pub fn move_category(
+        &mut self,
+        id: CategoryId,
+        new_parent_id: CategoryId,
+    ) -> Result<(), DomainError> {
+        self.ensure_move_keeps_two_levels(id, new_parent_id)?;
+        self.find_category_mut(id)
+            .ok_or(DomainError::CategoryNotFound)?
+            .set_parent(new_parent_id);
+        Ok(())
+    }
+
+    pub fn add_record(&mut self, record: Record) -> Result<(), DomainError> {
+        self.records.push(record);
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn records(&self) -> &[Record] {
+        &self.records
+    }
+
+    /// Свои расходы плюс расходы прямых подкатегорий.
+    pub fn expense_total(&self, id: CategoryId) -> Result<i64, DomainError> {
+        self.rolled_total(id, Self::expense_of)
+    }
+
+    /// Свои доходы плюс доходы прямых подкатегорий.
+    pub fn income_total(&self, id: CategoryId) -> Result<i64, DomainError> {
+        self.rolled_total(id, Self::income_of)
+    }
+
+    #[must_use]
+    pub fn categories_for_expense(&self) -> Vec<&Category> {
+        self.categories_where(|applicability| {
+            matches!(applicability, Applicability::Expense | Applicability::Both)
+        })
+    }
+
+    #[must_use]
+    pub fn categories_for_income(&self) -> Vec<&Category> {
+        self.categories_where(|applicability| {
+            matches!(applicability, Applicability::Income | Applicability::Both)
+        })
+    }
+
     pub fn add_operation(&mut self, draft: OperationDraft) -> Result<(), DomainError> {
         if self.accounts.is_empty() {
             return Err(DomainError::AccountRequired);
         }
         self.operations.push(draft);
         Ok(())
+    }
+
+    fn prepare_category(&self, mut input: CreateCategory) -> Result<CreateCategory, DomainError> {
+        let Some(parent_id) = input.parent_id else {
+            return Ok(input);
+        };
+        let parent = self
+            .find_category(parent_id)
+            .ok_or(DomainError::CategoryNotFound)?;
+        if parent.parent_id().is_some() {
+            return Err(DomainError::CategoryTooDeep);
+        }
+        if input.applicability.is_none() {
+            input.applicability = Some(parent.applicability());
+        }
+        Ok(input)
+    }
+
+    fn ensure_move_keeps_two_levels(
+        &self,
+        id: CategoryId,
+        new_parent_id: CategoryId,
+    ) -> Result<(), DomainError> {
+        if self.find_category(id).is_none() {
+            return Err(DomainError::CategoryNotFound);
+        }
+        let new_parent = self
+            .find_category(new_parent_id)
+            .ok_or(DomainError::CategoryNotFound)?;
+        if id == new_parent_id || new_parent.parent_id().is_some() || self.has_subcategories(id) {
+            return Err(DomainError::CategoryTooDeep);
+        }
+        Ok(())
+    }
+
+    fn has_subcategories(&self, id: CategoryId) -> bool {
+        self.categories
+            .iter()
+            .any(|category| category.parent_id() == Some(id))
+    }
+
+    fn rolled_total(
+        &self,
+        id: CategoryId,
+        own: fn(&Self, CategoryId) -> i64,
+    ) -> Result<i64, DomainError> {
+        self.find_category(id)
+            .ok_or(DomainError::CategoryNotFound)?;
+        let children = self
+            .categories
+            .iter()
+            .filter(|category| category.parent_id() == Some(id))
+            .map(|category| own(self, category.id()))
+            .sum::<i64>();
+        Ok(own(self, id) + children)
+    }
+
+    fn categories_where(&self, allows: impl Fn(Applicability) -> bool) -> Vec<&Category> {
+        self.categories
+            .iter()
+            .filter(|category| allows(category.applicability()))
+            .collect()
+    }
+
+    fn expense_of(&self, id: CategoryId) -> i64 {
+        self.sum_of(id, |record| match record {
+            Record::Expense {
+                category_id,
+                amount,
+            } => Some((*category_id, *amount)),
+            Record::Income { .. } => None,
+        })
+    }
+
+    fn income_of(&self, id: CategoryId) -> i64 {
+        self.sum_of(id, |record| match record {
+            Record::Income {
+                category_id,
+                amount,
+            } => Some((*category_id, *amount)),
+            Record::Expense { .. } => None,
+        })
+    }
+
+    fn sum_of(&self, id: CategoryId, parts: impl Fn(&Record) -> Option<(CategoryId, i64)>) -> i64 {
+        self.records
+            .iter()
+            .filter_map(parts)
+            .filter(|(category_id, _)| *category_id == id)
+            .map(|(_, amount)| amount)
+            .sum()
+    }
+
+    fn find_category(&self, id: CategoryId) -> Option<&Category> {
+        self.categories.iter().find(|category| category.id() == id)
+    }
+
+    fn find_category_mut(&mut self, id: CategoryId) -> Option<&mut Category> {
+        self.categories
+            .iter_mut()
+            .find(|category| category.id() == id)
     }
 
     fn find_account(&self, id: AccountId) -> Option<&Account> {
@@ -227,6 +410,309 @@ mod tests {
             amount: 1,
         });
         assert_eq!(err, Err(DomainError::AccountRequired));
+    }
+
+    #[test]
+    fn move_that_would_exceed_two_levels_is_rejected() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let groceries = ledger.create_category(CreateCategory {
+            name: "Продукты".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+        let leisure = ledger.create_category(CreateCategory {
+            name: "Досуг".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let before = ledger.categories().to_vec();
+
+        let err = ledger.move_category(food, leisure);
+        assert_eq!(err, Err(DomainError::CategoryTooDeep));
+        assert_eq!(ledger.categories(), before.as_slice());
+        assert_eq!(ledger.category(groceries)?.parent_id(), Some(food));
+
+        let taxi = ledger.create_category(CreateCategory {
+            name: "Такси".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let err = ledger.move_category(taxi, groceries);
+        assert_eq!(err, Err(DomainError::CategoryTooDeep));
+        assert_eq!(ledger.category(taxi)?.parent_id(), None);
+
+        ledger.add_record(Record::Expense {
+            category_id: taxi,
+            amount: 100,
+        })?;
+        let err = ledger.move_category(taxi, taxi);
+        assert_eq!(err, Err(DomainError::CategoryTooDeep));
+        assert_eq!(ledger.category(taxi)?.parent_id(), None);
+        assert_eq!(ledger.expense_total(taxi)?, 100);
+        Ok(())
+    }
+
+    #[test]
+    fn categories_for_kind_include_that_kind_and_both() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let expense = ledger.create_category(CreateCategory {
+            name: "Транспорт".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let income = ledger.create_category(CreateCategory {
+            name: "Зарплата".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Income),
+        })?;
+        let both = ledger.create_category(CreateCategory {
+            name: "Подарки".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Both),
+        })?;
+
+        let for_expense = ledger.categories_for_expense();
+        let for_income = ledger.categories_for_income();
+        assert!(for_expense.iter().any(|category| category.id() == expense));
+        assert!(for_expense.iter().any(|category| category.id() == both));
+        assert!(!for_expense.iter().any(|category| category.id() == income));
+        assert!(for_income.iter().any(|category| category.id() == income));
+        assert!(for_income.iter().any(|category| category.id() == both));
+        assert!(!for_income.iter().any(|category| category.id() == expense));
+        Ok(())
+    }
+
+    #[test]
+    fn moving_category_counts_its_amounts_under_the_new_parent() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let lunches = ledger.create_category(CreateCategory {
+            name: "Обеды в городе".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+        let leisure = ledger.create_category(CreateCategory {
+            name: "Досуг".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        ledger.add_record(Record::Expense {
+            category_id: lunches,
+            amount: 1_500,
+        })?;
+
+        ledger.move_category(lunches, leisure)?;
+
+        assert_eq!(ledger.category(lunches)?.parent_id(), Some(leisure));
+        assert_eq!(ledger.expense_total(lunches)?, 1_500);
+        assert_eq!(ledger.expense_total(leisure)?, 1_500);
+        assert_eq!(ledger.expense_total(food)?, 0);
+        assert_eq!(
+            ledger.records(),
+            &[Record::Expense {
+                category_id: lunches,
+                amount: 1_500,
+            }]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn totals_add_own_records_and_direct_children() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Both),
+        })?;
+        let lunches = ledger.create_category(CreateCategory {
+            name: "Обеды".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+        ledger.add_record(Record::Expense {
+            category_id: food,
+            amount: 400,
+        })?;
+        ledger.add_record(Record::Expense {
+            category_id: lunches,
+            amount: 1_500,
+        })?;
+        ledger.add_record(Record::Income {
+            category_id: lunches,
+            amount: 50,
+        })?;
+
+        assert_eq!(ledger.expense_total(food)?, 1_900);
+        assert_eq!(ledger.expense_total(lunches)?, 1_500);
+        assert_eq!(ledger.income_total(food)?, 50);
+        assert_eq!(ledger.income_total(lunches)?, 50);
+        Ok(())
+    }
+
+    #[test]
+    fn renaming_category_keeps_amounts_on_the_same_id() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let id = ledger.create_category(CreateCategory {
+            name: "Кафе".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        ledger.add_record(Record::Expense {
+            category_id: id,
+            amount: 450,
+        })?;
+
+        ledger.update_category(
+            id,
+            UpdateCategory {
+                name: Some("Кофейни".into()),
+                applicability: None,
+            },
+        )?;
+
+        assert_eq!(ledger.category(id)?.name(), "Кофейни");
+        assert_eq!(
+            ledger.records(),
+            &[Record::Expense {
+                category_id: id,
+                amount: 450,
+            }]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn update_category_changes_only_provided_fields() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let id = ledger.create_category(CreateCategory {
+            name: "Кафе".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+
+        ledger.update_category(
+            id,
+            UpdateCategory {
+                name: Some("Кофейни".into()),
+                applicability: None,
+            },
+        )?;
+        assert_eq!(ledger.category(id)?.name(), "Кофейни");
+        assert_eq!(ledger.category(id)?.applicability(), Applicability::Expense);
+
+        ledger.update_category(
+            id,
+            UpdateCategory {
+                name: None,
+                applicability: Some(Applicability::Both),
+            },
+        )?;
+        assert_eq!(ledger.category(id)?.name(), "Кофейни");
+        assert_eq!(ledger.category(id)?.applicability(), Applicability::Both);
+        assert_eq!(ledger.category(id)?.parent_id(), None);
+        Ok(())
+    }
+
+    #[test]
+    fn subcategory_of_subcategory_is_rejected() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let groceries = ledger.create_category(CreateCategory {
+            name: "Продукты".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+
+        let before = ledger.categories().to_vec();
+        let err = ledger.create_category(CreateCategory {
+            name: "Молоко".into(),
+            parent_id: Some(groceries),
+            applicability: None,
+        });
+        assert_eq!(err, Err(DomainError::CategoryTooDeep));
+        assert_eq!(ledger.categories(), before.as_slice());
+        Ok(())
+    }
+
+    #[test]
+    fn subcategory_inherits_parent_applicability_unless_overridden() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+
+        let groceries = ledger.create_category(CreateCategory {
+            name: "Продукты".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+        assert_eq!(ledger.category(groceries)?.parent_id(), Some(food));
+        assert_eq!(
+            ledger.category(groceries)?.applicability(),
+            Applicability::Expense
+        );
+
+        let cafes = ledger.create_category(CreateCategory {
+            name: "Кафе".into(),
+            parent_id: Some(food),
+            applicability: Some(Applicability::Income),
+        })?;
+        assert_eq!(
+            ledger.category(cafes)?.applicability(),
+            Applicability::Income
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn create_top_level_category_stores_name_and_applicability() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let id = ledger.create_category(CreateCategory {
+            name: "Транспорт".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+
+        assert_eq!(ledger.categories().len(), 1);
+        assert_eq!(ledger.category(id)?.id(), id);
+        assert_eq!(ledger.category(id)?.name(), "Транспорт");
+        assert_eq!(ledger.category(id)?.applicability(), Applicability::Expense);
+        assert_eq!(ledger.category(id)?.parent_id(), None);
+        Ok(())
     }
 
     #[test]

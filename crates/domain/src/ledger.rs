@@ -167,6 +167,26 @@ impl Ledger {
         Ok(())
     }
 
+    /// Все категории, кроме самой удаляемой.
+    /// Есть расходы — категорий только для доходов в списке нет.
+    pub fn transfer_targets(&self, id: CategoryId) -> Result<Vec<&Category>, DomainError> {
+        let _ = id;
+        todo!()
+    }
+
+    /// Лист без операций удаляется при пустом `transfer_to`.
+    /// С операциями они переходят в `transfer_to`; пустая цель — `TransferTargetRequired`.
+    /// Цель не из `transfer_targets` — `UnsuitableTransferTarget`.
+    /// С подкатегориями категория остаётся: `CategoryHasSubcategories`.
+    pub fn delete_category(
+        &mut self,
+        id: CategoryId,
+        transfer_to: Option<CategoryId>,
+    ) -> Result<(), DomainError> {
+        let _ = (id, transfer_to);
+        todo!()
+    }
+
     pub fn add_record(&mut self, record: Record) -> Result<(), DomainError> {
         self.records.push(record);
         Ok(())

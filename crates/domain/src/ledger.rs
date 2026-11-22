@@ -448,14 +448,23 @@ impl Ledger {
     /// Имя копируется в операцию. Новое имя попадает в список контрагентов, известное не дублируется.
     /// Остаток счёта увеличивается. Мой долг этому имени растёт в валюте счёта.
     pub fn add_borrow(&mut self, input: NewBorrow) -> Result<(), DomainError> {
-        let _ = input;
-        todo!()
+        let (account_id, name, amount) =
+            complete_debt(input.account_id, input.counterparty, input.amount)?;
+        self.ensure_account(account_id)?;
+        self.remember_counterparty(&name);
+        self.place_borrow(Borrow::new(input.date, account_id, name, amount));
+        #[rustfmt::skip]
+        self.operations.push(OperationDraft::Borrow {
+            account_id,
+            amount,
+        });
+        Ok(())
     }
 
     /// По дате, внутри дня в порядке добавления.
     #[must_use]
     pub fn borrows(&self) -> &[Borrow] {
-        todo!()
+        &self.borrows
     }
 
     /// Имена для выбора, в порядке появления.
@@ -564,6 +573,10 @@ impl Ledger {
 
     fn place_lend(&mut self, lend: Lend) {
         place_on_date(&mut self.lends, lend, Lend::date);
+    }
+
+    fn place_borrow(&mut self, borrow: Borrow) {
+        place_on_date(&mut self.borrows, borrow, Borrow::date);
     }
 
     fn place_expense(&mut self, expense: Expense) {
@@ -3284,6 +3297,31 @@ mod tests {
 
         assert_eq!(ledger.counterparties().len(), 1);
         assert_eq!(ledger.counterparties()[0].name(), "Петя");
+        Ok(())
+    }
+
+    #[test]
+    fn borrowing_increases_account_balance_and_my_debt() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let card = ledger.create_account(CreateAccount {
+            name: "Карта".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 1_000,
+        })?;
+        ledger.add_borrow(NewBorrow {
+            date: date(2026, 11, 22)?,
+            account_id: Some(card),
+            counterparty: Some("Маша".into()),
+            amount: Some(5_000),
+        })?;
+
+        assert_eq!(ledger.balance(card)?, 6_000);
+        assert_eq!(ledger.my_debts().len(), 1);
+        assert_eq!(ledger.my_debts()[0].counterparty_name(), "Маша");
+        assert_eq!(ledger.my_debts()[0].currency().as_str(), "RUB");
+        assert_eq!(ledger.my_debts()[0].amount(), 5_000);
+        assert!(ledger.debts_to_me().is_empty());
+        assert_eq!(ledger.borrows()[0].counterparty_name(), "Маша");
         Ok(())
     }
 }

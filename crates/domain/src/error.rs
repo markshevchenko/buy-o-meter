@@ -1,4 +1,3 @@
-/// Какие обязательные поля расхода не заполнены.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MissingFields {
     pub account: bool,

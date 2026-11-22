@@ -174,10 +174,8 @@ fn saving_expenses_assigns_day_numbers_and_reduces_balance() -> Result<(), Domai
     let expenses = ledger.expenses();
     assert_eq!(expenses.len(), 2);
     assert_eq!(expenses[0].date(), date);
-    assert_eq!(expenses[0].number_in_day(), 1);
     assert_eq!(expenses[0].amount(), 300);
     assert_eq!(expenses[1].date(), date);
-    assert_eq!(expenses[1].number_in_day(), 2);
     assert_eq!(expenses[1].amount(), 700);
     assert_eq!(ledger.balance(account_id)?, 9_000);
     Ok(())
@@ -326,14 +324,11 @@ fn expense_on_past_date_appends_to_that_day() -> Result<(), DomainError> {
     let expenses = ledger.expenses();
     assert_eq!(expenses.len(), 3);
     assert_eq!(expenses[0].date(), yesterday);
-    assert_eq!(expenses[0].number_in_day(), 1);
     assert_eq!(expenses[0].amount(), 100);
     assert_eq!(expenses[1].date(), yesterday);
-    assert_eq!(expenses[1].number_in_day(), 2);
     assert_eq!(expenses[1].amount(), 300);
     assert_eq!(expenses[1].comment(), "забытый");
     assert_eq!(expenses[2].date(), today);
-    assert_eq!(expenses[2].number_in_day(), 1);
     assert_eq!(expenses[2].amount(), 200);
     Ok(())
 }

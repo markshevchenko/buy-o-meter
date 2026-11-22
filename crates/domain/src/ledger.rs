@@ -198,7 +198,6 @@ impl Ledger {
         Ok(())
     }
 
-    /// Сохраняет расход.
     /// Пустые счёт, категория или сумма — `DomainError::MissingFields`, список не меняется.
     /// Сумма уменьшает остаток счёта и входит в итог категории.
     pub fn add_expense(&mut self, input: NewExpense) -> Result<(), DomainError> {
@@ -206,7 +205,7 @@ impl Ledger {
         todo!()
     }
 
-    /// Сохранённые расходы: по дате, внутри дня по номеру.
+    /// По дате, внутри дня в порядке добавления.
     #[must_use]
     pub fn expenses(&self) -> &[Expense] {
         todo!()

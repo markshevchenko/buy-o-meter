@@ -489,6 +489,10 @@ impl Ledger {
             input.amount,
         )?;
         self.ensure_account(account_id)?;
+        let remaining = self.debt_remaining(account_id, &name, direction)?;
+        if amount > remaining {
+            return Err(DomainError::RepaymentExceedsDebt { remaining });
+        }
         #[rustfmt::skip]
         self.place_repayment(Repayment::new(
             input.date,
@@ -555,6 +559,24 @@ impl Ledger {
     #[must_use]
     pub fn my_debts(&self) -> Vec<Debt> {
         self.open_debts(&self.borrows, borrow_parts, RepaymentDirection::Given)
+    }
+
+    fn debt_remaining(
+        &self,
+        account_id: AccountId,
+        name: &str,
+        direction: RepaymentDirection,
+    ) -> Result<i64, DomainError> {
+        let currency = self.account(account_id)?.currency().clone();
+        let debts = match direction {
+            RepaymentDirection::Received => self.debts_to_me(),
+            RepaymentDirection::Given => self.my_debts(),
+        };
+        Ok(debts
+            .iter()
+            .find(|debt| debt.counterparty_name() == name && debt.currency() == &currency)
+            .map(Debt::amount)
+            .unwrap_or(0))
     }
 
     fn open_debts<T>(
@@ -3567,6 +3589,39 @@ mod tests {
         assert!(ledger.my_debts().is_empty());
         assert_eq!(ledger.debts_to_me()[0].amount(), 10_000);
         assert_eq!(ledger.balance(cash)?, 40_000);
+        Ok(())
+    }
+
+    #[test]
+    fn repayment_above_remaining_is_rejected() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let day = date(2026, 11, 22)?;
+        ledger.add_lend(NewLend {
+            date: day,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(5_000),
+        })?;
+        let balance_before = ledger.balance(cash)?;
+
+        assert_eq!(
+            ledger.add_repayment(NewRepayment {
+                date: day,
+                account_id: Some(cash),
+                counterparty: Some("Петя".into()),
+                direction: Some(RepaymentDirection::Received),
+                amount: Some(6_000),
+            }),
+            Err(DomainError::RepaymentExceedsDebt { remaining: 5_000 })
+        );
+        assert_eq!(ledger.debts_to_me()[0].amount(), 5_000);
+        assert_eq!(ledger.balance(cash)?, balance_before);
+        assert!(ledger.repayments().is_empty());
         Ok(())
     }
 }

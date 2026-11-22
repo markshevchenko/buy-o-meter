@@ -1,7 +1,8 @@
+use std::time::SystemTime;
+
 use crate::account::AccountId;
 use crate::category::CategoryId;
 use crate::clock::Clock;
-use crate::date::Date;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RepaymentDirection {
@@ -55,7 +56,7 @@ pub enum Record {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewExpense {
-    pub date: Date,
+    pub date: SystemTime,
     pub account_id: Option<AccountId>,
     pub category_id: Option<CategoryId>,
     pub amount: Option<i64>,
@@ -72,7 +73,7 @@ impl NewExpense {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Expense {
-    date: Date,
+    date: SystemTime,
     account_id: AccountId,
     category_id: CategoryId,
     amount: i64,
@@ -81,7 +82,7 @@ pub struct Expense {
 
 impl Expense {
     #[must_use]
-    pub fn date(&self) -> Date {
+    pub fn date(&self) -> SystemTime {
         self.date
     }
 

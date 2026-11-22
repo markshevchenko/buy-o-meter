@@ -7,6 +7,7 @@ struct StarterGroup {
     children: &'static [&'static str],
 }
 
+#[rustfmt::skip]
 const EXPENSE_TREE: &[StarterGroup] = &[
     StarterGroup {
         name: "Жильё",
@@ -21,7 +22,11 @@ const EXPENSE_TREE: &[StarterGroup] = &[
     },
     StarterGroup {
         name: "Питание",
-        children: &["Продукты", "Кафе и рестораны", "Рабочие обеды"],
+        children: &[
+            "Продукты",
+            "Кафе и рестораны",
+            "Рабочие обеды",
+        ],
     },
     StarterGroup {
         name: "Транспорт",
@@ -44,7 +49,11 @@ const EXPENSE_TREE: &[StarterGroup] = &[
     },
     StarterGroup {
         name: "Личные расходы",
-        children: &["Одежда и обувь", "Гигиена и красота", "Подписки и сервисы"],
+        children: &[
+            "Одежда и обувь",
+            "Гигиена и красота",
+            "Подписки и сервисы",
+        ],
     },
     StarterGroup {
         name: "Семья и дети",
@@ -62,7 +71,6 @@ const EXPENSE_TREE: &[StarterGroup] = &[
             "Путешествия",
             "Образование (курсы, книги)",
             "Хобби",
-            "Подарки",
         ],
     },
     StarterGroup {
@@ -76,22 +84,39 @@ const EXPENSE_TREE: &[StarterGroup] = &[
     },
     StarterGroup {
         name: "Прочее",
-        children: &["Непредвиденные расходы", "Прочие траты", "Потери"],
+        children: &[
+            "Непредвиденные расходы",
+            "Прочие траты",
+            "Потери",
+            "Подарки",
+        ],
     },
 ];
 
+#[rustfmt::skip]
 const INCOME_TREE: &[StarterGroup] = &[
     StarterGroup {
         name: "Активный доход",
-        children: &["Зарплата (оклад)", "Премии и бонусы", "Подработка"],
+        children: &[
+            "Зарплата (оклад)",
+            "Премии и бонусы",
+            "Подработка",
+        ],
     },
     StarterGroup {
         name: "Пассивный доход",
-        children: &["Проценты по вкладам", "Кэшбэк"],
+        children: &[
+            "Проценты по вкладам",
+            "Кэшбэк",
+        ],
     },
     StarterGroup {
         name: "Прочее",
-        children: &["Прочие доходы", "Купоны по облигациям"],
+        children: &[
+            "Прочие доходы",
+            "Купоны по облигациям",
+            "Подарки",
+        ],
     },
 ];
 
@@ -135,8 +160,6 @@ fn place_tree(
     }
 }
 
-/// Дерево расходов, затем дерево доходов, затем «Подарки» без родителя.
-/// `check_applicability`: расход, доход и «оба» соответственно.
 fn assert_starter_set(categories: &[Category], check_applicability: bool) {
     let mut index = 0;
     place_tree(
@@ -151,14 +174,6 @@ fn assert_starter_set(categories: &[Category], check_applicability: bool) {
         INCOME_TREE,
         flag(check_applicability, Applicability::Income),
     );
-    assert_placed(
-        categories,
-        index,
-        "Подарки",
-        None,
-        flag(check_applicability, Applicability::Both),
-    );
-    index += 1;
     assert_eq!(index, categories.len());
 }
 

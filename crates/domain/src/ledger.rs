@@ -173,12 +173,23 @@ impl Ledger {
     /// Все категории, кроме самой удаляемой.
     /// Есть расходы — категорий только для доходов в списке нет.
     pub fn transfer_targets(&self, id: CategoryId) -> Result<Vec<&Category>, DomainError> {
-        self.find_category(id).ok_or(DomainError::CategoryNotFound)?;
+        self.find_category(id)
+            .ok_or(DomainError::CategoryNotFound)?;
+        let keeps_income = !self.has_expenses(id);
         Ok(self
             .categories
             .iter()
-            .filter(|category| category.id() != id)
+            .filter(|category| {
+                category.id() != id
+                    && (keeps_income || category.applicability() != Applicability::Income)
+            })
             .collect())
+    }
+
+    fn has_expenses(&self, id: CategoryId) -> bool {
+        self.expenses
+            .iter()
+            .any(|expense| expense.category_id() == id)
     }
 
     /// Лист без операций удаляется при пустом `transfer_to`.
@@ -2384,5 +2395,73 @@ mod tests {
             .iter()
             .map(|category| category.id())
             .collect())
+    }
+
+    #[test]
+    fn transfer_targets_with_expenses_omit_income_only_categories() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let account_id = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 10_000,
+        })?;
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let lunches = ledger.create_category(CreateCategory {
+            name: "Обеды в городе".into(),
+            parent_id: Some(food),
+            applicability: None,
+        })?;
+        let gifts = ledger.create_category(CreateCategory {
+            name: "Подарки".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Both),
+        })?;
+        let salary = ledger.create_category(CreateCategory {
+            name: "Зарплата".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Income),
+        })?;
+        ledger.add_expense(NewExpense {
+            date: date(2026, 11, 22)?,
+            account_id: Some(account_id),
+            category_id: Some(lunches),
+            amount: Some(450),
+            comment: String::new(),
+        })?;
+
+        let targets = target_ids(&ledger, lunches)?;
+
+        assert!(targets.contains(&food));
+        assert!(targets.contains(&gifts));
+        assert!(!targets.contains(&salary));
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_targets_without_expenses_keep_income_categories() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let food = ledger.create_category(CreateCategory {
+            name: "Питание".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Expense),
+        })?;
+        let salary = ledger.create_category(CreateCategory {
+            name: "Зарплата".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Income),
+        })?;
+
+        let targets = target_ids(&ledger, food)?;
+
+        assert!(targets.contains(&salary));
+        Ok(())
     }
 }

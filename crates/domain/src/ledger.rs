@@ -425,8 +425,14 @@ impl Ledger {
     pub fn add_lend(&mut self, input: NewLend) -> Result<(), DomainError> {
         let (account_id, name, amount) =
             complete_debt(input.account_id, input.counterparty, input.amount)?;
+        self.ensure_account(account_id)?;
         self.remember_counterparty(&name);
         self.place_lend(Lend::new(input.date, account_id, name, amount));
+        #[rustfmt::skip]
+        self.operations.push(OperationDraft::Lend {
+            account_id,
+            amount,
+        });
         Ok(())
     }
 
@@ -515,6 +521,16 @@ impl Ledger {
         to_account_id: AccountId,
     ) -> Result<bool, DomainError> {
         Ok(self.account(from_account_id)?.currency() == self.account(to_account_id)?.currency())
+    }
+
+    fn ensure_account(&self, account_id: AccountId) -> Result<(), DomainError> {
+        if self.accounts.is_empty() {
+            return Err(DomainError::AccountRequired);
+        }
+        if self.find_account(account_id).is_none() {
+            return Err(DomainError::AccountNotFound);
+        }
+        Ok(())
     }
 
     fn reject_if_counterparty_has_debts(&self, id: CounterpartyId) -> Result<(), DomainError> {
@@ -3134,6 +3150,24 @@ mod tests {
         assert_eq!(ledger.counterparties(), before.as_slice());
         assert_eq!(ledger.lends()[0].counterparty_name(), "Петя");
         assert_eq!(ledger.lends()[0].amount(), 10_000);
+        Ok(())
+    }
+
+    #[test]
+    fn lending_reduces_account_balance() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        ledger.add_lend(NewLend {
+            date: date(2026, 11, 22)?,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+        assert_eq!(ledger.balance(cash)?, 10_000);
         Ok(())
     }
 }

@@ -409,6 +409,97 @@ mod tests {
     use super::*;
     use crate::currency::Currency;
 
+    struct ExpectedGroup {
+        name: &'static str,
+        children: &'static [&'static str],
+    }
+
+    #[rustfmt::skip]
+    const EXPECTED_EXPENSES: &[ExpectedGroup] = &[
+        ExpectedGroup {
+            name: "Жильё",
+            children: &[
+                "Аренда/покупка/ипотека",
+                "ЖКХ",
+                "Интернет и связь",
+                "Ремонт и мебель",
+                "Техника",
+                "Хозтовары",
+            ],
+        },
+        ExpectedGroup {
+            name: "Питание",
+            children: &[
+                "Продукты",
+                "Кафе и рестораны",
+                "Рабочие обеды",
+            ],
+        },
+        ExpectedGroup {
+            name: "Транспорт",
+            children: &[
+                "Общественный транспорт",
+                "Бензин",
+                "Такси",
+                "Парковка и штрафы",
+                "Обслуживание авто",
+            ],
+        },
+        ExpectedGroup {
+            name: "Здоровье",
+            children: &[
+                "Лекарства",
+                "Врачи и клиники",
+                "Страховка",
+                "Спорт и фитнес",
+            ],
+        },
+        ExpectedGroup {
+            name: "Личные расходы",
+            children: &[
+                "Одежда и обувь",
+                "Гигиена и красота",
+                "Подписки и сервисы",
+            ],
+        },
+        ExpectedGroup {
+            name: "Семья и дети",
+            children: &[
+                "Образование",
+                "Одежда и товары",
+                "Секции и кружки",
+                "Питомцы",
+            ],
+        },
+        ExpectedGroup {
+            name: "Развлечения и развитие",
+            children: &[
+                "Досуг (кино, концерты)",
+                "Путешествия",
+                "Образование (курсы, книги)",
+                "Хобби",
+            ],
+        },
+        ExpectedGroup {
+            name: "Обязательные платежи",
+            children: &[
+                "Кредиты и займы",
+                "Налоги",
+                "Алименты",
+                "Банковские комиссии",
+            ],
+        },
+        ExpectedGroup {
+            name: "Прочее",
+            children: &[
+                "Непредвиденные расходы",
+                "Прочие траты",
+                "Потери",
+                "Подарки",
+            ],
+        },
+    ];
+
     #[test]
     fn new_ledger_has_no_accounts() {
         let ledger = Ledger::new();
@@ -773,7 +864,36 @@ mod tests {
         assert_expense_at(categories, 4, "Ремонт и мебель", Some(housing_id));
         assert_expense_at(categories, 5, "Техника", Some(housing_id));
         assert_expense_at(categories, 6, "Хозтовары", Some(housing_id));
-        assert_eq!(categories.len(), 7);
+    }
+
+    #[test]
+    fn seed_starter_categories_creates_the_expense_tree() {
+        let mut ledger = Ledger::new();
+        ledger.seed_starter_categories();
+
+        let mut index = 0;
+        place_expected_expenses(ledger.categories(), &mut index);
+        assert_eq!(index, ledger.categories().len());
+    }
+
+    fn place_expected_expenses(categories: &[Category], index: &mut usize) {
+        for group in EXPECTED_EXPENSES {
+            let parent_id = assert_expense_at(categories, *index, group.name, None);
+            *index += 1;
+            place_expense_children(categories, index, parent_id, group.children);
+        }
+    }
+
+    fn place_expense_children(
+        categories: &[Category],
+        index: &mut usize,
+        parent_id: CategoryId,
+        children: &[&str],
+    ) {
+        for child in children {
+            assert_expense_at(categories, *index, child, Some(parent_id));
+            *index += 1;
+        }
     }
 
     fn assert_expense_at(

@@ -2,11 +2,12 @@ use std::time::SystemTime;
 
 use crate::account::{Account, AccountId, CreateAccount, UpdateAccount};
 use crate::category::{Applicability, Category, CategoryId, CreateCategory, UpdateCategory};
+use crate::counterparty::{Counterparty, CounterpartyId, Debt};
 use crate::currency::Currency;
-use crate::error::{DomainError, MissingFields, MissingTransferFields};
+use crate::error::{DomainError, MissingDebtFields, MissingFields, MissingTransferFields};
 use crate::operation::{
-    Expense, Income, NewExpense, NewIncome, NewTransfer, OperationDraft, Record,
-    RepaymentDirection, Transfer, TransferAmountFields,
+    Borrow, Expense, Income, Lend, NewBorrow, NewExpense, NewIncome, NewLend, NewTransfer,
+    OperationDraft, Record, RepaymentDirection, Transfer, TransferAmountFields,
 };
 use crate::starter::{EXPENSE_TREE, INCOME_TREE, StarterGroup};
 
@@ -22,6 +23,10 @@ pub struct Ledger {
     expenses: Vec<Expense>,
     incomes: Vec<Income>,
     transfers: Vec<Transfer>,
+    lends: Vec<Lend>,
+    borrows: Vec<Borrow>,
+    next_counterparty_id: u64,
+    counterparties: Vec<Counterparty>,
 }
 
 impl Ledger {
@@ -38,6 +43,10 @@ impl Ledger {
             expenses: Vec::new(),
             incomes: Vec::new(),
             transfers: Vec::new(),
+            lends: Vec::new(),
+            borrows: Vec::new(),
+            next_counterparty_id: 1,
+            counterparties: Vec::new(),
         }
     }
 
@@ -412,6 +421,93 @@ impl Ledger {
         }
     }
 
+    /// Пустые счёт, контрагент или сумма — `DomainError::MissingDebtFields`, списки не меняются.
+    /// Имя копируется в операцию. Новое имя попадает в список контрагентов, известное не дублируется.
+    /// Остаток счёта уменьшается. Долг мне этому имени растёт в валюте счёта.
+    pub fn add_lend(&mut self, input: NewLend) -> Result<(), DomainError> {
+        let (account_id, name, amount) =
+            complete_debt(input.account_id, input.counterparty, input.amount)?;
+        self.ensure_account(account_id)?;
+        self.remember_counterparty(&name);
+        self.place_lend(Lend::new(input.date, account_id, name, amount));
+        #[rustfmt::skip]
+        self.operations.push(OperationDraft::Lend {
+            account_id,
+            amount,
+        });
+        Ok(())
+    }
+
+    /// По дате, внутри дня в порядке добавления.
+    #[must_use]
+    pub fn lends(&self) -> &[Lend] {
+        &self.lends
+    }
+
+    /// Пустые счёт, контрагент или сумма — `DomainError::MissingDebtFields`, списки не меняются.
+    /// Имя копируется в операцию. Новое имя попадает в список контрагентов, известное не дублируется.
+    /// Остаток счёта увеличивается. Мой долг этому имени растёт в валюте счёта.
+    pub fn add_borrow(&mut self, input: NewBorrow) -> Result<(), DomainError> {
+        let (account_id, name, amount) =
+            complete_debt(input.account_id, input.counterparty, input.amount)?;
+        self.ensure_account(account_id)?;
+        self.remember_counterparty(&name);
+        self.place_borrow(Borrow::new(input.date, account_id, name, amount));
+        #[rustfmt::skip]
+        self.operations.push(OperationDraft::Borrow {
+            account_id,
+            amount,
+        });
+        Ok(())
+    }
+
+    /// По дате, внутри дня в порядке добавления.
+    #[must_use]
+    pub fn borrows(&self) -> &[Borrow] {
+        &self.borrows
+    }
+
+    /// Имена для выбора, в порядке появления.
+    #[must_use]
+    pub fn counterparties(&self) -> &[Counterparty] {
+        &self.counterparties
+    }
+
+    /// Меняет имя только в списке. В операциях остаётся прежнее.
+    /// Нет такого id — `CounterpartyNotFound`.
+    /// Ненулевой долг по текущему имени в любую сторону — `CounterpartyHasDebts`, список не меняется.
+    pub fn rename_counterparty(
+        &mut self,
+        id: CounterpartyId,
+        name: String,
+    ) -> Result<(), DomainError> {
+        self.reject_if_counterparty_has_debts(id)?;
+        let _ = name;
+        todo!()
+    }
+
+    /// Убирает имя из списка. В операциях оно остаётся.
+    /// Нет такого id — `CounterpartyNotFound`.
+    /// Ненулевой долг по текущему имени в любую сторону — `CounterpartyHasDebts`, список не меняется.
+    pub fn delete_counterparty(&mut self, id: CounterpartyId) -> Result<(), DomainError> {
+        self.reject_if_counterparty_has_debts(id)?;
+        todo!()
+    }
+
+    /// Кому я дал и ещё не получил. Одна запись на имя и валюту, сумма больше нуля.
+    /// Встречный долг в этот список не сворачивается.
+    #[must_use]
+    pub fn debts_to_me(&self) -> Vec<Debt> {
+        debt_balances(self, &self.lends, lend_parts)
+    }
+
+    /// У кого я взял и ещё не отдал. Одна запись на имя и валюту, сумма больше нуля.
+    /// Встречный долг в этот список не сворачивается.
+    #[must_use]
+    pub fn my_debts(&self) -> Vec<Debt> {
+        debt_balances(self, &self.borrows, borrow_parts)
+    }
+
     fn credited_amount(
         &self,
         from_account_id: AccountId,
@@ -436,6 +532,51 @@ impl Ledger {
         to_account_id: AccountId,
     ) -> Result<bool, DomainError> {
         Ok(self.account(from_account_id)?.currency() == self.account(to_account_id)?.currency())
+    }
+
+    fn ensure_account(&self, account_id: AccountId) -> Result<(), DomainError> {
+        if self.accounts.is_empty() {
+            return Err(DomainError::AccountRequired);
+        }
+        if self.find_account(account_id).is_none() {
+            return Err(DomainError::AccountNotFound);
+        }
+        Ok(())
+    }
+
+    fn reject_if_counterparty_has_debts(&self, id: CounterpartyId) -> Result<(), DomainError> {
+        let name = self
+            .counterparties
+            .iter()
+            .find(|counterparty| counterparty.id() == id)
+            .map(Counterparty::name)
+            .ok_or(DomainError::CounterpartyNotFound)?;
+        if has_open_debt(&self.debts_to_me(), name) || has_open_debt(&self.my_debts(), name) {
+            return Err(DomainError::CounterpartyHasDebts);
+        }
+        Ok(())
+    }
+
+    fn remember_counterparty(&mut self, name: &str) {
+        if self
+            .counterparties
+            .iter()
+            .any(|counterparty| counterparty.name() == name)
+        {
+            return;
+        }
+        let id = CounterpartyId::from_u64(self.next_counterparty_id);
+        self.next_counterparty_id += 1;
+        self.counterparties
+            .push(Counterparty::new(id, name.to_owned()));
+    }
+
+    fn place_lend(&mut self, lend: Lend) {
+        place_on_date(&mut self.lends, lend, Lend::date);
+    }
+
+    fn place_borrow(&mut self, borrow: Borrow) {
+        place_on_date(&mut self.borrows, borrow, Borrow::date);
     }
 
     fn place_expense(&mut self, expense: Expense) {
@@ -716,6 +857,86 @@ fn move_records(records: &mut [Record], from: CategoryId, to: CategoryId) {
         };
         if *category_id == from {
             *category_id = to;
+        }
+    }
+}
+
+fn has_open_debt(debts: &[Debt], name: &str) -> bool {
+    debts.iter().any(|debt| debt.counterparty_name() == name)
+}
+
+fn debt_balances<T>(
+    ledger: &Ledger,
+    items: &[T],
+    parts: impl Fn(&T) -> (&str, AccountId, i64),
+) -> Vec<Debt> {
+    let mut totals: Vec<(String, Currency, i64)> = Vec::new();
+    for item in items {
+        let (name, account_id, amount) = parts(item);
+        let Some(currency) = ledger
+            .find_account(account_id)
+            .map(|account| account.currency().clone())
+        else {
+            continue;
+        };
+        add_balance(&mut totals, name, currency, amount);
+    }
+    totals
+        .into_iter()
+        .filter(|(_, _, amount)| *amount > 0)
+        .map(|(name, currency, amount)| Debt::new(name, currency, amount))
+        .collect()
+}
+
+fn add_balance(
+    totals: &mut Vec<(String, Currency, i64)>,
+    name: &str,
+    currency: Currency,
+    amount: i64,
+) {
+    if let Some((_, _, total)) = totals
+        .iter_mut()
+        .find(|(existing, existing_currency, _)| existing == name && existing_currency == &currency)
+    {
+        *total += amount;
+        return;
+    }
+    totals.push((name.to_owned(), currency, amount));
+}
+
+#[rustfmt::skip]
+fn lend_parts(lend: &Lend) -> (&str, AccountId, i64) {
+    (
+        lend.counterparty_name(),
+        lend.account_id(),
+        lend.amount(),
+    )
+}
+
+#[rustfmt::skip]
+fn borrow_parts(borrow: &Borrow) -> (&str, AccountId, i64) {
+    (
+        borrow.counterparty_name(),
+        borrow.account_id(),
+        borrow.amount(),
+    )
+}
+
+fn complete_debt(
+    account_id: Option<AccountId>,
+    counterparty: Option<String>,
+    amount: Option<i64>,
+) -> Result<(AccountId, String, i64), DomainError> {
+    match (account_id, counterparty, amount) {
+        (Some(account_id), Some(counterparty), Some(amount)) => {
+            Ok((account_id, counterparty, amount))
+        }
+        (account_id, counterparty, amount) => {
+            Err(DomainError::MissingDebtFields(MissingDebtFields {
+                account: account_id.is_none(),
+                counterparty: counterparty.is_none(),
+                amount: amount.is_none(),
+            }))
         }
     }
 }
@@ -2927,6 +3148,211 @@ mod tests {
         assert_eq!(ledger.expense_total(home_lunches)?, 1_500);
         assert_eq!(ledger.expense_total(food)?, 1_500);
         assert_eq!(ledger.category(lunches), Err(DomainError::CategoryNotFound));
+        Ok(())
+    }
+
+    #[test]
+    fn saving_lend_adds_new_counterparty() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+
+        assert!(ledger.counterparties().is_empty());
+
+        ledger.add_lend(NewLend {
+            date: date(2026, 11, 22)?,
+            account_id: Some(cash),
+            counterparty: Some("Маша".into()),
+            amount: Some(1_000),
+        })?;
+
+        assert_eq!(ledger.counterparties().len(), 1);
+        assert_eq!(ledger.counterparties()[0].name(), "Маша");
+        Ok(())
+    }
+
+    #[test]
+    fn lend_keeps_counterparty_name_after_list_grows() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+
+        ledger.add_lend(NewLend {
+            date: date(2026, 11, 22)?,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+        assert_eq!(ledger.lends()[0].counterparty_name(), "Петя");
+
+        ledger.add_lend(NewLend {
+            date: date(2026, 11, 22)?,
+            account_id: Some(cash),
+            counterparty: Some("Маша".into()),
+            amount: Some(500),
+        })?;
+        assert_eq!(ledger.lends()[0].counterparty_name(), "Петя");
+        Ok(())
+    }
+
+    #[test]
+    fn counterparty_with_lend_cannot_be_renamed_or_deleted() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        ledger.add_lend(NewLend {
+            date: date(2026, 11, 22)?,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+
+        let id = ledger.counterparties()[0].id();
+        let before = ledger.counterparties().to_vec();
+        assert_eq!(
+            ledger.rename_counterparty(id, "Пётр".into()),
+            Err(DomainError::CounterpartyHasDebts)
+        );
+        assert_eq!(
+            ledger.delete_counterparty(id),
+            Err(DomainError::CounterpartyHasDebts)
+        );
+        assert_eq!(ledger.counterparties(), before.as_slice());
+        assert_eq!(ledger.lends()[0].counterparty_name(), "Петя");
+        assert_eq!(ledger.lends()[0].amount(), 10_000);
+        Ok(())
+    }
+
+    #[test]
+    fn lending_reduces_account_balance() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        ledger.add_lend(NewLend {
+            date: date(2026, 11, 22)?,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+        assert_eq!(ledger.balance(cash)?, 10_000);
+        Ok(())
+    }
+
+    #[test]
+    fn lending_adds_debt_to_me_in_account_currency() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        ledger.add_lend(NewLend {
+            date: date(2026, 11, 22)?,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+
+        let debts = ledger.debts_to_me();
+        assert_eq!(debts.len(), 1);
+        assert_eq!(debts[0].counterparty_name(), "Петя");
+        assert_eq!(debts[0].currency().as_str(), "RUB");
+        assert_eq!(debts[0].amount(), 10_000);
+        assert!(ledger.my_debts().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn second_lend_to_same_name_keeps_one_counterparty() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 50_000,
+        })?;
+        ledger.add_lend(NewLend {
+            date: date(2026, 11, 22)?,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+        ledger.add_lend(NewLend {
+            date: date(2026, 11, 22)?,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(3_000),
+        })?;
+
+        assert_eq!(ledger.counterparties().len(), 1);
+        assert_eq!(ledger.counterparties()[0].name(), "Петя");
+        Ok(())
+    }
+
+    #[test]
+    fn borrowing_increases_account_balance_and_my_debt() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let card = ledger.create_account(CreateAccount {
+            name: "Карта".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 1_000,
+        })?;
+        ledger.add_borrow(NewBorrow {
+            date: date(2026, 11, 22)?,
+            account_id: Some(card),
+            counterparty: Some("Маша".into()),
+            amount: Some(5_000),
+        })?;
+
+        assert_eq!(ledger.balance(card)?, 6_000);
+        assert_eq!(ledger.my_debts().len(), 1);
+        assert_eq!(ledger.my_debts()[0].counterparty_name(), "Маша");
+        assert_eq!(ledger.my_debts()[0].currency().as_str(), "RUB");
+        assert_eq!(ledger.my_debts()[0].amount(), 5_000);
+        assert!(ledger.debts_to_me().is_empty());
+        assert_eq!(ledger.borrows()[0].counterparty_name(), "Маша");
+        Ok(())
+    }
+
+    #[test]
+    fn counterparty_with_borrow_cannot_be_renamed_or_deleted() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let card = ledger.create_account(CreateAccount {
+            name: "Карта".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 1_000,
+        })?;
+        ledger.add_borrow(NewBorrow {
+            date: date(2026, 11, 22)?,
+            account_id: Some(card),
+            counterparty: Some("Маша".into()),
+            amount: Some(5_000),
+        })?;
+
+        let id = ledger.counterparties()[0].id();
+        let before = ledger.counterparties().to_vec();
+        assert_eq!(
+            ledger.rename_counterparty(id, "Мария".into()),
+            Err(DomainError::CounterpartyHasDebts)
+        );
+        assert_eq!(
+            ledger.delete_counterparty(id),
+            Err(DomainError::CounterpartyHasDebts)
+        );
+        assert_eq!(ledger.counterparties(), before.as_slice());
+        assert_eq!(ledger.borrows()[0].counterparty_name(), "Маша");
+        assert_eq!(ledger.borrows()[0].amount(), 5_000);
         Ok(())
     }
 }

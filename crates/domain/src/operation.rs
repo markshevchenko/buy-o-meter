@@ -300,13 +300,141 @@ impl Transfer {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewLend {
+    pub date: SystemTime,
+    pub account_id: Option<AccountId>,
+    pub counterparty: Option<String>,
+    pub amount: Option<i64>,
+}
+
+impl NewLend {
+    #[must_use]
+    pub fn open(clock: &impl Clock) -> Self {
+        Self {
+            date: clock.today(),
+            account_id: None,
+            counterparty: None,
+            amount: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Lend {
+    date: SystemTime,
+    account_id: AccountId,
+    counterparty_name: String,
+    amount: i64,
+}
+
+impl Lend {
+    pub(crate) fn new(
+        date: SystemTime,
+        account_id: AccountId,
+        counterparty_name: String,
+        amount: i64,
+    ) -> Self {
+        Self {
+            date,
+            account_id,
+            counterparty_name,
+            amount,
+        }
+    }
+
+    #[must_use]
+    pub fn date(&self) -> SystemTime {
+        self.date
+    }
+
+    #[must_use]
+    pub fn account_id(&self) -> AccountId {
+        self.account_id
+    }
+
+    #[must_use]
+    pub fn counterparty_name(&self) -> &str {
+        &self.counterparty_name
+    }
+
+    #[must_use]
+    pub fn amount(&self) -> i64 {
+        self.amount
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewBorrow {
+    pub date: SystemTime,
+    pub account_id: Option<AccountId>,
+    pub counterparty: Option<String>,
+    pub amount: Option<i64>,
+}
+
+impl NewBorrow {
+    #[must_use]
+    pub fn open(clock: &impl Clock) -> Self {
+        Self {
+            date: clock.today(),
+            account_id: None,
+            counterparty: None,
+            amount: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Borrow {
+    date: SystemTime,
+    account_id: AccountId,
+    counterparty_name: String,
+    amount: i64,
+}
+
+impl Borrow {
+    pub(crate) fn new(
+        date: SystemTime,
+        account_id: AccountId,
+        counterparty_name: String,
+        amount: i64,
+    ) -> Self {
+        Self {
+            date,
+            account_id,
+            counterparty_name,
+            amount,
+        }
+    }
+
+    #[must_use]
+    pub fn date(&self) -> SystemTime {
+        self.date
+    }
+
+    #[must_use]
+    pub fn account_id(&self) -> AccountId {
+        self.account_id
+    }
+
+    #[must_use]
+    pub fn counterparty_name(&self) -> &str {
+        &self.counterparty_name
+    }
+
+    #[must_use]
+    pub fn amount(&self) -> i64 {
+        self.amount
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::clock::FixedClock;
     use crate::date;
     use crate::error::DomainError;
 
-    use super::{NewExpense, NewIncome, NewTransfer};
+    use super::{NewBorrow, NewExpense, NewIncome, NewLend, NewTransfer};
 
     #[test]
     fn open_sets_today_and_leaves_fields_empty() -> Result<(), DomainError> {
@@ -345,6 +473,30 @@ mod tests {
         assert_eq!(form.amount, None);
         assert_eq!(form.to_amount, None);
         assert_eq!(form.comment, "");
+        Ok(())
+    }
+
+    #[test]
+    fn open_lend_sets_today_and_leaves_fields_empty() -> Result<(), DomainError> {
+        let today = date(2026, 11, 22)?;
+        let form = NewLend::open(&FixedClock::new(today));
+
+        assert_eq!(form.date, today);
+        assert_eq!(form.account_id, None);
+        assert_eq!(form.counterparty, None);
+        assert_eq!(form.amount, None);
+        Ok(())
+    }
+
+    #[test]
+    fn open_borrow_sets_today_and_leaves_fields_empty() -> Result<(), DomainError> {
+        let today = date(2026, 11, 22)?;
+        let form = NewBorrow::open(&FixedClock::new(today));
+
+        assert_eq!(form.date, today);
+        assert_eq!(form.account_id, None);
+        assert_eq!(form.counterparty, None);
+        assert_eq!(form.amount, None);
         Ok(())
     }
 }

@@ -440,8 +440,13 @@ pub struct NewRepayment {
 impl NewRepayment {
     #[must_use]
     pub fn open(clock: &impl Clock) -> Self {
-        let _ = clock;
-        todo!()
+        Self {
+            date: clock.today(),
+            account_id: None,
+            counterparty: None,
+            direction: None,
+            amount: None,
+        }
     }
 }
 
@@ -487,7 +492,7 @@ mod tests {
     use crate::date;
     use crate::error::DomainError;
 
-    use super::{NewBorrow, NewExpense, NewIncome, NewLend, NewTransfer};
+    use super::{NewBorrow, NewExpense, NewIncome, NewLend, NewRepayment, NewTransfer};
 
     #[test]
     fn open_sets_today_and_leaves_fields_empty() -> Result<(), DomainError> {
@@ -549,6 +554,19 @@ mod tests {
         assert_eq!(form.date, today);
         assert_eq!(form.account_id, None);
         assert_eq!(form.counterparty, None);
+        assert_eq!(form.amount, None);
+        Ok(())
+    }
+
+    #[test]
+    fn open_repayment_sets_today_and_leaves_fields_empty() -> Result<(), DomainError> {
+        let today = date(2026, 11, 22)?;
+        let form = NewRepayment::open(&FixedClock::new(today));
+
+        assert_eq!(form.date, today);
+        assert_eq!(form.account_id, None);
+        assert_eq!(form.counterparty, None);
+        assert_eq!(form.direction, None);
         assert_eq!(form.amount, None);
         Ok(())
     }

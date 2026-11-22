@@ -170,8 +170,6 @@ impl Ledger {
         Ok(())
     }
 
-    /// Все категории, кроме самой удаляемой.
-    /// Есть расходы — категорий только для доходов в списке нет.
     pub fn transfer_targets(&self, id: CategoryId) -> Result<Vec<&Category>, DomainError> {
         self.find_category(id)
             .ok_or(DomainError::CategoryNotFound)?;
@@ -192,10 +190,6 @@ impl Ledger {
             .any(|expense| expense.category_id() == id)
     }
 
-    /// Лист без операций удаляется при пустом `transfer_to`.
-    /// С операциями они переходят в `transfer_to`; пустая цель — `TransferTargetRequired`.
-    /// Цель не из `transfer_targets` — `UnsuitableTransferTarget`.
-    /// С подкатегориями категория остаётся: `CategoryHasSubcategories`.
     pub fn delete_category(
         &mut self,
         id: CategoryId,
@@ -206,17 +200,21 @@ impl Ledger {
         if self.has_subcategories(id) {
             return Err(DomainError::CategoryHasSubcategories);
         }
-        self.relocate_expenses(id, transfer_to)?;
+        self.relocate_operations(id, transfer_to)?;
         self.remove_category(id);
         Ok(())
     }
 
-    fn relocate_expenses(
+    fn has_incomes(&self, id: CategoryId) -> bool {
+        self.incomes.iter().any(|income| income.category_id() == id)
+    }
+
+    fn relocate_operations(
         &mut self,
         id: CategoryId,
         transfer_to: Option<CategoryId>,
     ) -> Result<(), DomainError> {
-        if !self.has_expenses(id) {
+        if !self.has_expenses(id) && !self.has_incomes(id) {
             return Ok(());
         }
         let target = transfer_to.ok_or(DomainError::TransferTargetRequired)?;
@@ -2737,6 +2735,86 @@ mod tests {
         assert_eq!(ledger.category(food)?.name(), "Питание");
         assert_eq!(ledger.expenses(), expenses_before.as_slice());
         assert_eq!(ledger.expense_total(food)?, 800);
+        Ok(())
+    }
+
+    #[test]
+    fn deleting_incomes_without_a_target_keeps_the_category() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let account_id = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 10_000,
+        })?;
+        let salary = ledger.create_category(CreateCategory {
+            name: "Зарплата".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Income),
+        })?;
+        ledger.add_income(NewIncome {
+            date: date(2026, 11, 22)?,
+            account_id: Some(account_id),
+            category_id: Some(salary),
+            amount: Some(50_000),
+            comment: String::new(),
+        })?;
+        let incomes_before = ledger.incomes().to_vec();
+
+        let err = ledger.delete_category(salary, None);
+
+        assert_eq!(err, Err(DomainError::TransferTargetRequired));
+        assert_eq!(ledger.category(salary)?.name(), "Зарплата");
+        assert_eq!(ledger.incomes(), incomes_before.as_slice());
+        assert_eq!(ledger.income_total(salary)?, 50_000);
+        Ok(())
+    }
+
+    #[test]
+    fn deleting_moves_incomes_to_the_chosen_category() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let account_id = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 10_000,
+        })?;
+        let salary = ledger.create_category(CreateCategory {
+            name: "Зарплата".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Income),
+        })?;
+        let bonus = ledger.create_category(CreateCategory {
+            name: "Премия".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Income),
+        })?;
+        let day = date(2026, 11, 22)?;
+        ledger.add_income(NewIncome {
+            date: day,
+            account_id: Some(account_id),
+            category_id: Some(salary),
+            amount: Some(50_000),
+            comment: "ноябрь".into(),
+        })?;
+
+        ledger.delete_category(salary, Some(bonus))?;
+
+        let incomes = ledger.incomes();
+        assert_eq!(incomes.len(), 1);
+        assert_eq!(incomes[0].date(), day);
+        assert_eq!(incomes[0].account_id(), account_id);
+        assert_eq!(incomes[0].category_id(), bonus);
+        assert_eq!(incomes[0].amount(), 50_000);
+        assert_eq!(incomes[0].comment(), "ноябрь");
+        assert_eq!(ledger.income_total(bonus)?, 50_000);
+        assert_eq!(ledger.category(salary), Err(DomainError::CategoryNotFound));
+        assert_eq!(
+            ledger.income_total(salary),
+            Err(DomainError::CategoryNotFound)
+        );
         Ok(())
     }
 }

@@ -272,6 +272,11 @@ impl Ledger {
             amount,
             input.comment,
         ));
+        #[rustfmt::skip]
+        self.operations.push(OperationDraft::Income {
+            account_id,
+            amount,
+        });
         Ok(())
     }
 
@@ -1319,6 +1324,42 @@ mod tests {
         assert_eq!(ledger.balance(usd)?, 85);
         assert_eq!(ledger.balance(rub)?, 10_000);
         assert_eq!(ledger.expenses()[0].amount(), 15);
+        assert_eq!(ledger.account(usd)?.currency().as_str(), "USD");
+        Ok(())
+    }
+
+    #[test]
+    fn saved_income_increases_only_its_account_balance() -> Result<(), DomainError> {
+        use crate::category::Applicability;
+
+        let mut ledger = Ledger::new();
+        let rub = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 10_000,
+        })?;
+        let usd = ledger.create_account(CreateAccount {
+            name: "Доллары".into(),
+            currency: Currency::new("USD"),
+            opening_balance: 100,
+        })?;
+        let category_id = ledger.create_category(CreateCategory {
+            name: "Зарплата".into(),
+            parent_id: None,
+            applicability: Some(Applicability::Income),
+        })?;
+
+        ledger.add_income(NewIncome {
+            date: date(2026, 11, 22)?,
+            account_id: Some(usd),
+            category_id: Some(category_id),
+            amount: Some(15),
+            comment: String::new(),
+        })?;
+
+        assert_eq!(ledger.balance(usd)?, 115);
+        assert_eq!(ledger.balance(rub)?, 10_000);
+        assert_eq!(ledger.incomes()[0].amount(), 15);
         assert_eq!(ledger.account(usd)?.currency().as_str(), "USD");
         Ok(())
     }

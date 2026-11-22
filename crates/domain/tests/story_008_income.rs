@@ -199,7 +199,7 @@ fn saving_incomes_assigns_day_numbers_and_increases_balance() -> Result<(), Doma
     assert_eq!(incomes[0].amount(), 300);
     assert_eq!(incomes[1].date(), date);
     assert_eq!(incomes[1].amount(), 700);
-    assert_eq!(ledger.balance(account_id)?, 10_700);
+    assert_eq!(ledger.balance(account_id)?, 11_000);
     Ok(())
 }
 

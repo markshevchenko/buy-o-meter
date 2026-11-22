@@ -4,7 +4,7 @@ use crate::account::{Account, AccountId, CreateAccount, UpdateAccount};
 use crate::category::{Applicability, Category, CategoryId, CreateCategory, UpdateCategory};
 use crate::counterparty::{Counterparty, CounterpartyId, Debt};
 use crate::currency::Currency;
-use crate::error::{DomainError, MissingFields, MissingTransferFields};
+use crate::error::{DomainError, MissingDebtFields, MissingFields, MissingTransferFields};
 use crate::operation::{
     Borrow, Expense, Income, Lend, NewBorrow, NewExpense, NewIncome, NewLend, NewTransfer,
     OperationDraft, Record, RepaymentDirection, Transfer, TransferAmountFields,
@@ -23,6 +23,8 @@ pub struct Ledger {
     expenses: Vec<Expense>,
     incomes: Vec<Income>,
     transfers: Vec<Transfer>,
+    next_counterparty_id: u64,
+    counterparties: Vec<Counterparty>,
 }
 
 impl Ledger {
@@ -39,6 +41,8 @@ impl Ledger {
             expenses: Vec::new(),
             incomes: Vec::new(),
             transfers: Vec::new(),
+            next_counterparty_id: 1,
+            counterparties: Vec::new(),
         }
     }
 
@@ -417,8 +421,10 @@ impl Ledger {
     /// Имя копируется в операцию. Новое имя попадает в список контрагентов, известное не дублируется.
     /// Остаток счёта уменьшается. Долг мне этому имени растёт в валюте счёта.
     pub fn add_lend(&mut self, input: NewLend) -> Result<(), DomainError> {
-        let _ = input;
-        todo!()
+        let (_account_id, name, _amount) =
+            complete_debt(input.account_id, input.counterparty, input.amount)?;
+        self.remember_counterparty(name);
+        Ok(())
     }
 
     /// По дате, внутри дня в порядке добавления.
@@ -444,7 +450,7 @@ impl Ledger {
     /// Имена для выбора, в порядке появления.
     #[must_use]
     pub fn counterparties(&self) -> &[Counterparty] {
-        todo!()
+        &self.counterparties
     }
 
     /// Меняет имя только в списке. В операциях остаётся прежнее.
@@ -505,6 +511,12 @@ impl Ledger {
         to_account_id: AccountId,
     ) -> Result<bool, DomainError> {
         Ok(self.account(from_account_id)?.currency() == self.account(to_account_id)?.currency())
+    }
+
+    fn remember_counterparty(&mut self, name: String) {
+        let id = CounterpartyId::from_u64(self.next_counterparty_id);
+        self.next_counterparty_id += 1;
+        self.counterparties.push(Counterparty::new(id, name));
     }
 
     fn place_expense(&mut self, expense: Expense) {
@@ -785,6 +797,25 @@ fn move_records(records: &mut [Record], from: CategoryId, to: CategoryId) {
         };
         if *category_id == from {
             *category_id = to;
+        }
+    }
+}
+
+fn complete_debt(
+    account_id: Option<AccountId>,
+    counterparty: Option<String>,
+    amount: Option<i64>,
+) -> Result<(AccountId, String, i64), DomainError> {
+    match (account_id, counterparty, amount) {
+        (Some(account_id), Some(counterparty), Some(amount)) => {
+            Ok((account_id, counterparty, amount))
+        }
+        (account_id, counterparty, amount) => {
+            Err(DomainError::MissingDebtFields(MissingDebtFields {
+                account: account_id.is_none(),
+                counterparty: counterparty.is_none(),
+                amount: amount.is_none(),
+            }))
         }
     }
 }
@@ -2996,6 +3027,29 @@ mod tests {
         assert_eq!(ledger.expense_total(home_lunches)?, 1_500);
         assert_eq!(ledger.expense_total(food)?, 1_500);
         assert_eq!(ledger.category(lunches), Err(DomainError::CategoryNotFound));
+        Ok(())
+    }
+
+    #[test]
+    fn saving_lend_adds_new_counterparty() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+
+        assert!(ledger.counterparties().is_empty());
+
+        ledger.add_lend(NewLend {
+            date: date(2026, 11, 22)?,
+            account_id: Some(cash),
+            counterparty: Some("Маша".into()),
+            amount: Some(1_000),
+        })?;
+
+        assert_eq!(ledger.counterparties().len(), 1);
+        assert_eq!(ledger.counterparties()[0].name(), "Маша");
         Ok(())
     }
 }

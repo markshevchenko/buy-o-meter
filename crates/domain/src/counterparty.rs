@@ -22,6 +22,10 @@ pub struct Counterparty {
 }
 
 impl Counterparty {
+    pub(crate) fn new(id: CounterpartyId, name: String) -> Self {
+        Self { id, name }
+    }
+
     #[must_use]
     pub fn id(&self) -> CounterpartyId {
         self.id

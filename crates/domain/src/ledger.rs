@@ -3,7 +3,7 @@ use std::time::SystemTime;
 use crate::account::{Account, AccountId, CreateAccount, UpdateAccount};
 use crate::category::{Applicability, Category, CategoryId, CreateCategory, UpdateCategory};
 use crate::currency::Currency;
-use crate::error::{DomainError, MissingFields};
+use crate::error::{DomainError, MissingFields, MissingTransferFields};
 use crate::operation::{
     Expense, Income, NewExpense, NewIncome, NewTransfer, OperationDraft, Record,
     RepaymentDirection, Transfer, TransferAmountFields,
@@ -281,10 +281,12 @@ impl Ledger {
 
     /// Одна валюта: списывается и зачисляется `amount`, `to_amount` пустой.
     /// Разные валюты: списывается `amount`, зачисляется `to_amount`.
-    /// Один и тот же счёт — `DomainError::SameAccount`, список не меняется.
     /// В итоги категорий перевод не входит.
     pub fn add_transfer(&mut self, input: NewTransfer) -> Result<(), DomainError> {
         let (from_account_id, to_account_id, amount) = complete_transfer(&input)?;
+        if self.accounts.is_empty() {
+            return Err(DomainError::AccountRequired);
+        }
         if from_account_id == to_account_id {
             return Err(DomainError::SameAccount);
         }
@@ -314,7 +316,6 @@ impl Ledger {
         &self.transfers
     }
 
-    /// `One`, если валюты счетов совпадают, иначе `Two`.
     pub fn transfer_amount_fields(
         &self,
         from_account_id: AccountId,
@@ -337,7 +338,12 @@ impl Ledger {
         if self.accounts_share_currency(from_account_id, to_account_id)? {
             return Ok(amount);
         }
-        Ok(to_amount.unwrap_or(amount))
+        to_amount.ok_or(DomainError::MissingTransferFields(MissingTransferFields {
+            from_account: false,
+            to_account: false,
+            amount: false,
+            to_amount: true,
+        }))
     }
 
     fn accounts_share_currency(
@@ -586,7 +592,14 @@ fn complete_transfer(input: &NewTransfer) -> Result<(AccountId, AccountId, i64),
         (Some(from_account_id), Some(to_account_id), Some(amount)) => {
             Ok((from_account_id, to_account_id, amount))
         }
-        _ => Err(DomainError::AccountNotFound),
+        (from_account_id, to_account_id, amount) => {
+            Err(DomainError::MissingTransferFields(MissingTransferFields {
+                from_account: from_account_id.is_none(),
+                to_account: to_account_id.is_none(),
+                amount: amount.is_none(),
+                to_amount: false,
+            }))
+        }
     }
 }
 
@@ -701,7 +714,7 @@ impl Default for Ledger {
 mod tests {
     use super::*;
     use crate::currency::Currency;
-    use crate::error::MissingFields;
+    use crate::error::{MissingFields, MissingTransferFields};
     use crate::{add_days, date};
 
     struct ExpectedGroup {
@@ -2108,6 +2121,152 @@ mod tests {
         assert_eq!(ledger.transfers(), saved.as_slice());
         assert_eq!(ledger.balance(card)?, 20_100);
         assert_eq!(ledger.balance(cash)?, 900);
+        Ok(())
+    }
+
+    fn card_and_cash() -> Result<(Ledger, AccountId, AccountId), DomainError> {
+        let mut ledger = Ledger::new();
+        let card = ledger.create_account(CreateAccount {
+            name: "Карта".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 1_000,
+        })?;
+        Ok((ledger, card, cash))
+    }
+
+    fn transfer_input(
+        from_account_id: Option<AccountId>,
+        to_account_id: Option<AccountId>,
+        amount: Option<i64>,
+        to_amount: Option<i64>,
+    ) -> Result<NewTransfer, DomainError> {
+        Ok(NewTransfer {
+            date: date(2026, 11, 22)?,
+            from_account_id,
+            to_account_id,
+            amount,
+            to_amount,
+            comment: String::new(),
+        })
+    }
+
+    fn assert_transfer_fields_rejected(missing: MissingTransferFields) -> Result<(), DomainError> {
+        let (mut ledger, card, cash) = card_and_cash()?;
+        let err = ledger.add_transfer(transfer_input(
+            omit_if(missing.from_account, card),
+            omit_if(missing.to_account, cash),
+            omit_if(missing.amount, 100),
+            None,
+        )?);
+        assert_eq!(err, Err(DomainError::MissingTransferFields(missing)));
+        assert!(ledger.transfers().is_empty());
+        assert_eq!(ledger.balance(card)?, 20_000);
+        assert_eq!(ledger.balance(cash)?, 1_000);
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_without_accounts_or_amount_is_rejected() -> Result<(), DomainError> {
+        assert_transfer_fields_rejected(MissingTransferFields {
+            from_account: true,
+            to_account: false,
+            amount: false,
+            to_amount: false,
+        })?;
+        assert_transfer_fields_rejected(MissingTransferFields {
+            from_account: false,
+            to_account: true,
+            amount: false,
+            to_amount: false,
+        })?;
+        assert_transfer_fields_rejected(MissingTransferFields {
+            from_account: false,
+            to_account: false,
+            amount: true,
+            to_amount: false,
+        })?;
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_between_currencies_without_credited_amount_is_rejected() -> Result<(), DomainError>
+    {
+        let mut ledger = Ledger::new();
+        let card = ledger.create_account(CreateAccount {
+            name: "Карта".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let dollars = ledger.create_account(CreateAccount {
+            name: "Доллары".into(),
+            currency: Currency::new("USD"),
+            opening_balance: 100,
+        })?;
+
+        let err = ledger.add_transfer(transfer_input(
+            Some(card),
+            Some(dollars),
+            Some(7_500),
+            None,
+        )?);
+
+        assert_eq!(
+            err,
+            Err(DomainError::MissingTransferFields(MissingTransferFields {
+                from_account: false,
+                to_account: false,
+                amount: false,
+                to_amount: true,
+            }))
+        );
+        assert!(ledger.transfers().is_empty());
+        assert_eq!(ledger.balance(card)?, 20_000);
+        assert_eq!(ledger.balance(dollars)?, 100);
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_without_any_account_is_rejected() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let err = ledger.add_transfer(transfer_input(
+            Some(AccountId::from_u64(1)),
+            Some(AccountId::from_u64(1)),
+            Some(1),
+            None,
+        )?);
+        assert_eq!(err, Err(DomainError::AccountRequired));
+        assert!(ledger.transfers().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_with_unknown_account_is_rejected() -> Result<(), DomainError> {
+        let (mut ledger, card, cash) = card_and_cash()?;
+        let unknown_from = ledger.add_transfer(transfer_input(
+            Some(AccountId::from_u64(99)),
+            Some(cash),
+            Some(100),
+            None,
+        )?);
+        assert_eq!(unknown_from, Err(DomainError::AccountNotFound));
+        assert!(ledger.transfers().is_empty());
+        assert_eq!(ledger.balance(card)?, 20_000);
+        assert_eq!(ledger.balance(cash)?, 1_000);
+
+        let unknown_to = ledger.add_transfer(transfer_input(
+            Some(card),
+            Some(AccountId::from_u64(99)),
+            Some(100),
+            None,
+        )?);
+        assert_eq!(unknown_to, Err(DomainError::AccountNotFound));
+        assert!(ledger.transfers().is_empty());
+        assert_eq!(ledger.balance(card)?, 20_000);
         Ok(())
     }
 

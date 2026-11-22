@@ -464,7 +464,8 @@ impl Ledger {
         id: CounterpartyId,
         name: String,
     ) -> Result<(), DomainError> {
-        let _ = (id, name);
+        self.reject_if_counterparty_has_debts(id)?;
+        let _ = name;
         todo!()
     }
 
@@ -472,7 +473,7 @@ impl Ledger {
     /// Нет такого id — `CounterpartyNotFound`.
     /// Ненулевой долг по текущему имени в любую сторону — `CounterpartyHasDebts`, список не меняется.
     pub fn delete_counterparty(&mut self, id: CounterpartyId) -> Result<(), DomainError> {
-        let _ = id;
+        self.reject_if_counterparty_has_debts(id)?;
         todo!()
     }
 
@@ -514,6 +515,19 @@ impl Ledger {
         to_account_id: AccountId,
     ) -> Result<bool, DomainError> {
         Ok(self.account(from_account_id)?.currency() == self.account(to_account_id)?.currency())
+    }
+
+    fn reject_if_counterparty_has_debts(&self, id: CounterpartyId) -> Result<(), DomainError> {
+        let name = self
+            .counterparties
+            .iter()
+            .find(|counterparty| counterparty.id() == id)
+            .map(Counterparty::name)
+            .ok_or(DomainError::CounterpartyNotFound)?;
+        if self.lends.iter().any(|lend| open_amount(lend, name)) {
+            return Err(DomainError::CounterpartyHasDebts);
+        }
+        Ok(())
     }
 
     fn remember_counterparty(&mut self, name: &str) {
@@ -807,6 +821,10 @@ fn move_records(records: &mut [Record], from: CategoryId, to: CategoryId) {
             *category_id = to;
         }
     }
+}
+
+fn open_amount(lend: &Lend, name: &str) -> bool {
+    lend.counterparty_name() == name && lend.amount() != 0
 }
 
 fn complete_debt(
@@ -3085,6 +3103,37 @@ mod tests {
             amount: Some(500),
         })?;
         assert_eq!(ledger.lends()[0].counterparty_name(), "Петя");
+        Ok(())
+    }
+
+    #[test]
+    fn counterparty_with_lend_cannot_be_renamed_or_deleted() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        ledger.add_lend(NewLend {
+            date: date(2026, 11, 22)?,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+
+        let id = ledger.counterparties()[0].id();
+        let before = ledger.counterparties().to_vec();
+        assert_eq!(
+            ledger.rename_counterparty(id, "Пётр".into()),
+            Err(DomainError::CounterpartyHasDebts)
+        );
+        assert_eq!(
+            ledger.delete_counterparty(id),
+            Err(DomainError::CounterpartyHasDebts)
+        );
+        assert_eq!(ledger.counterparties(), before.as_slice());
+        assert_eq!(ledger.lends()[0].counterparty_name(), "Петя");
+        assert_eq!(ledger.lends()[0].amount(), 10_000);
         Ok(())
     }
 }

@@ -173,8 +173,8 @@ impl Ledger {
     /// Все категории, кроме самой удаляемой.
     /// Есть расходы — категорий только для доходов в списке нет.
     pub fn transfer_targets(&self, id: CategoryId) -> Result<Vec<&Category>, DomainError> {
-        let _ = id;
-        todo!()
+        self.find_category(id).ok_or(DomainError::CategoryNotFound)?;
+        Ok(Vec::new())
     }
 
     /// Лист без операций удаляется при пустом `transfer_to`.
@@ -2327,5 +2327,15 @@ mod tests {
         assert_eq!(transfers[2].date(), today);
         assert_eq!(transfers[2].amount(), 200);
         Ok(())
+    }
+
+    #[test]
+    fn transfer_targets_of_missing_category_are_not_found() {
+        let ledger = Ledger::new();
+        let missing = CategoryId::from_u64(1);
+        assert_eq!(
+            ledger.transfer_targets(missing),
+            Err(DomainError::CategoryNotFound)
+        );
     }
 }

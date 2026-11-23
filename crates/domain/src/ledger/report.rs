@@ -65,6 +65,24 @@ impl ReportPeriod {
         self.start
     }
 
+    fn contains(self, moment: SystemTime) -> bool {
+        let Ok(end) = self.exclusive_end() else {
+            return false;
+        };
+        moment >= self.start && moment < end
+    }
+
+    fn exclusive_end(self) -> Result<SystemTime, DomainError> {
+        match self.unit {
+            PeriodUnit::Month => {
+                let start = calendar_date(self.start)?;
+                let (year, month) = shift_month(start.year(), month_index(start.month()), 1)?;
+                month_start(year, month)
+            }
+            PeriodUnit::Week => clock::add_days(self.start, 7),
+        }
+    }
+
     /// Конец периода, не включая этот момент.
     pub fn end(self) -> Result<SystemTime, DomainError> {
         todo!("{self:?}")
@@ -196,9 +214,9 @@ impl CategoryMonths {
 impl Ledger {
     #[must_use]
     pub fn category_report(&self, kind: ReportKind, period: ReportPeriod) -> CategoryReport {
-        let _ = (kind, period);
+        let _ = kind;
         CategoryReport {
-            categories: self.report_roots(&self.expense_totals()),
+            categories: self.report_roots(&self.expense_totals(period)),
         }
     }
 
@@ -243,9 +261,12 @@ impl Ledger {
             .collect()
     }
 
-    fn expense_totals(&self) -> Vec<(CategoryId, Vec<CurrencyAmount>)> {
+    fn expense_totals(&self, period: ReportPeriod) -> Vec<(CategoryId, Vec<CurrencyAmount>)> {
         let mut totals = Vec::new();
         for expense in &self.expenses {
+            if !period.contains(expense.date()) {
+                continue;
+            }
             let Some(currency) = self.currency_of(expense.account_id()) else {
                 continue;
             };
@@ -294,6 +315,15 @@ fn month_start(year: i32, month: i32) -> Result<SystemTime, DomainError> {
 
 fn month_index(month: time::Month) -> i32 {
     i32::from(u8::from(month))
+}
+
+fn shift_month(year: i32, month: i32, delta: i32) -> Result<(i32, i32), DomainError> {
+    let index = year
+        .checked_mul(12)
+        .and_then(|months| months.checked_add(month - 1))
+        .and_then(|months| months.checked_add(delta))
+        .ok_or(DomainError::InvalidDate)?;
+    Ok((index.div_euclid(12), index.rem_euclid(12) + 1))
 }
 
 fn direct_amounts(
@@ -386,6 +416,21 @@ mod tests {
         let food_node = &report.categories()[0];
         assert_eq!(food_node.id(), food);
         assert_eq!(food_node.amount(&Currency::new("RUB")), 4_500);
+        Ok(())
+    }
+
+    #[test]
+    fn current_month_report_skips_other_months() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = account(&mut ledger)?;
+        let products = category(&mut ledger, "Продукты", None)?;
+        let today = date(2026, 11, 22)?;
+        spend(&mut ledger, cash, products, date(2026, 10, 15)?, 1_000)?;
+        spend(&mut ledger, cash, products, today, 2_000)?;
+
+        let period = ReportPeriod::current_month(&FixedClock::new(today))?;
+        let report = ledger.category_report(ReportKind::Expense, period);
+        assert_eq!(report.categories()[0].amount(&Currency::new("RUB")), 2_000);
         Ok(())
     }
 

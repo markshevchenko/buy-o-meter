@@ -292,6 +292,8 @@ name = "domain"
 version = "0.1.0"
 dependencies = [
  "pollster",
+ "serde",
+ "serde_json",
  "time",
 ]
 

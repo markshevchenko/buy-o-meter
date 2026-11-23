@@ -1,5 +1,7 @@
 use std::time::SystemTime;
 
+use serde::{Deserialize, Serialize};
+
 use crate::account::AccountId;
 use crate::category::CategoryId;
 
@@ -22,7 +24,7 @@ pub use lend::{Lend, NewLend};
 pub use repayment::{NewRepayment, Repayment, RepaymentDirection};
 pub use transfer::{NewTransfer, Transfer, TransferAmountFields};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct OperationId(u64);
 
 impl OperationId {
@@ -37,7 +39,7 @@ impl OperationId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OperationKind {
     Expense,
     Income,
@@ -91,7 +93,7 @@ impl OperationEntry {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OperationDraft {
     Expense {
         account_id: AccountId,
@@ -122,7 +124,7 @@ pub enum OperationDraft {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Record {
     Expense {
         category_id: CategoryId,

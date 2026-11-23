@@ -1,5 +1,7 @@
 use std::time::SystemTime;
 
+use serde::{Deserialize, Serialize};
+
 use super::Ledger;
 use crate::account::AccountId;
 use crate::category::CategoryId;
@@ -21,9 +23,10 @@ mod transfer;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub(super) struct FeedItem {
     id: OperationId,
+    #[serde(with = "crate::epoch")]
     date: SystemTime,
     kind: OperationKind,
 }

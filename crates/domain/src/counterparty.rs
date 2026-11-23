@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
+
 use crate::currency::Currency;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CounterpartyId(u64);
 
 impl CounterpartyId {
@@ -15,7 +17,7 @@ impl CounterpartyId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Counterparty {
     id: CounterpartyId,
     name: String,

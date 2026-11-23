@@ -14,6 +14,7 @@ mod edit;
 mod feed;
 mod operation;
 mod report;
+mod snapshot;
 
 pub use report::{
     CategoryMonths, CategoryReport, CategoryReportNode, CurrencyAmount, MonthTotal, PeriodUnit,

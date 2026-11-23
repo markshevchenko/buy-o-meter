@@ -1,5 +1,7 @@
 use std::time::SystemTime;
 
+use serde::{Deserialize, Serialize};
+
 use super::OperationId;
 use crate::account::AccountId;
 use crate::category::CategoryId;
@@ -27,9 +29,10 @@ impl NewExpense {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Expense {
     id: OperationId,
+    #[serde(with = "crate::epoch")]
     date: SystemTime,
     account_id: AccountId,
     category_id: CategoryId,

@@ -3,6 +3,7 @@ mod category;
 mod clock;
 mod counterparty;
 mod currency;
+mod epoch;
 mod error;
 mod feed;
 mod ledger;

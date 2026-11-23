@@ -30,35 +30,35 @@ impl FeedMoney {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FeedLine {
     Expense {
-        pub id: OperationId,
-        pub money: FeedMoney,
-        pub category_name: String,
+        id: OperationId,
+        money: FeedMoney,
+        category_name: String,
     },
     Income {
-        pub id: OperationId,
-        pub money: FeedMoney,
-        pub category_name: String,
+        id: OperationId,
+        money: FeedMoney,
+        category_name: String,
     },
     Transfer {
-        pub id: OperationId,
-        pub from: FeedMoney,
-        pub to: FeedMoney,
+        id: OperationId,
+        from: FeedMoney,
+        to: FeedMoney,
     },
     Lend {
-        pub id: OperationId,
-        pub money: FeedMoney,
-        pub counterparty: String,
+        id: OperationId,
+        money: FeedMoney,
+        counterparty: String,
     },
     Borrow {
-        pub id: OperationId,
-        pub money: FeedMoney,
-        pub counterparty: String,
+        id: OperationId,
+        money: FeedMoney,
+        counterparty: String,
     },
     Repayment {
-        pub id: OperationId,
-        pub money: FeedMoney,
-        pub counterparty: String,
-        pub direction: RepaymentDirection,
+        id: OperationId,
+        money: FeedMoney,
+        counterparty: String,
+        direction: RepaymentDirection,
     },
 }
 

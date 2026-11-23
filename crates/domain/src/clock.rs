@@ -1,5 +1,7 @@
 use std::time::{Duration, SystemTime};
 
+use time::{Date, Month, Time, UtcDateTime};
+
 use crate::error::DomainError;
 
 pub trait Clock {
@@ -7,8 +9,10 @@ pub trait Clock {
 }
 
 pub fn date(year: i32, month: i32, day: i32) -> Result<SystemTime, DomainError> {
-    let days = civil_days(year, month, day).ok_or(DomainError::InvalidDate)?;
-    system_time_from_days(days).ok_or(DomainError::InvalidDate)
+    let month = calendar_month(month)?;
+    let day = u8::try_from(day).map_err(|_| DomainError::InvalidDate)?;
+    let date = Date::from_calendar_date(year, month, day).map_err(|_| DomainError::InvalidDate)?;
+    midnight_utc(date).ok_or(DomainError::InvalidDate)
 }
 
 pub fn add_days(date: SystemTime, days: i64) -> Result<SystemTime, DomainError> {
@@ -43,44 +47,15 @@ impl Clock for FixedClock {
     }
 }
 
-fn civil_days(year: i32, month: i32, day: i32) -> Option<i64> {
-    let month = u8::try_from(month).ok()?;
-    let day = u8::try_from(day).ok()?;
-    if !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
-        return None;
-    }
-    Some(days_from_civil(year, month, day))
+fn calendar_month(month: i32) -> Result<Month, DomainError> {
+    let month = u8::try_from(month).map_err(|_| DomainError::InvalidDate)?;
+    Month::try_from(month).map_err(|_| DomainError::InvalidDate)
 }
 
-fn days_in_month(year: i32, month: u8) -> u8 {
-    match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if is_leap_year(year) => 29,
-        2 => 28,
-        _ => 0,
-    }
-}
-
-fn is_leap_year(year: i32) -> bool {
-    let divides = |n| year.rem_euclid(n) == 0;
-    divides(4) && (!divides(100) || divides(400))
-}
-
-fn days_from_civil(year: i32, month: u8, day: u8) -> i64 {
-    let year = i64::from(year) - i64::from(month <= 2);
-    let era = if year >= 0 { year } else { year - 399 } / 400;
-    let year_of_era = (year - era * 400) as u64;
-    let month_index = if month > 2 { month - 3 } else { month + 9 };
-    let day_of_year = (153 * u64::from(month_index) + 2) / 5 + u64::from(day) - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146_097 + day_of_era as i64 - 719_468
-}
-
-fn system_time_from_days(days: i64) -> Option<SystemTime> {
-    let seconds = days.unsigned_abs().checked_mul(86_400)?;
-    let shift = Duration::from_secs(seconds);
-    if days < 0 {
+fn midnight_utc(date: Date) -> Option<SystemTime> {
+    let seconds = UtcDateTime::new(date, Time::MIDNIGHT).unix_timestamp();
+    let shift = Duration::from_secs(seconds.unsigned_abs());
+    if seconds < 0 {
         SystemTime::UNIX_EPOCH.checked_sub(shift)
     } else {
         SystemTime::UNIX_EPOCH.checked_add(shift)

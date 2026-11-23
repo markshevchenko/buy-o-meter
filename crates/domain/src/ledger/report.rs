@@ -55,7 +55,10 @@ impl ReportPeriod {
     }
 
     pub fn next(self) -> Result<Self, DomainError> {
-        todo!("{self:?}")
+        Ok(Self {
+            unit: self.unit,
+            start: self.exclusive_end()?,
+        })
     }
 
     #[must_use]
@@ -450,6 +453,18 @@ mod tests {
         assert_eq!(october.start(), date(2026, 10, 1)?);
         assert_eq!(spent(&ledger, october), 1_000);
         assert_eq!(ReportPeriod::month(2026, 13), Err(DomainError::InvalidDate));
+        Ok(())
+    }
+
+    #[test]
+    fn next_month_follows_the_calendar() -> Result<(), DomainError> {
+        let october = ReportPeriod::month(2026, 10)?;
+        let november = october.next()?;
+        assert_eq!(november.unit(), PeriodUnit::Month);
+        assert_eq!(november.start(), date(2026, 11, 1)?);
+
+        let january = ReportPeriod::month(2026, 12)?.next()?;
+        assert_eq!(january.start(), date(2027, 1, 1)?);
         Ok(())
     }
 

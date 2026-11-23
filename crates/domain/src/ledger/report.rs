@@ -56,14 +56,11 @@ impl ReportPeriod {
     }
 
     pub fn previous(self) -> Result<Self, DomainError> {
-        todo!("{self:?}")
+        self.shift(-1)
     }
 
     pub fn next(self) -> Result<Self, DomainError> {
-        Ok(Self {
-            unit: self.unit,
-            start: self.exclusive_end()?,
-        })
+        self.shift(1)
     }
 
     #[must_use]
@@ -84,14 +81,18 @@ impl ReportPeriod {
     }
 
     fn exclusive_end(self) -> Result<SystemTime, DomainError> {
-        match self.unit {
-            PeriodUnit::Month => {
-                let start = calendar_date(self.start)?;
-                let (year, month) = shift_month(start.year(), month_index(start.month()), 1)?;
-                month_start(year, month)
-            }
-            PeriodUnit::Week => clock::add_days(self.start, 7),
-        }
+        self.shift(1).map(|period| period.start)
+    }
+
+    fn shift(self, steps: i32) -> Result<Self, DomainError> {
+        let start = match self.unit {
+            PeriodUnit::Month => shifted_month(self.start, steps)?,
+            PeriodUnit::Week => clock::add_days(self.start, i64::from(steps) * 7)?,
+        };
+        Ok(Self {
+            unit: self.unit,
+            start,
+        })
     }
 
     /// Конец периода, не включая этот момент.
@@ -328,6 +329,12 @@ fn month_index(month: time::Month) -> i32 {
     i32::from(u8::from(month))
 }
 
+fn shifted_month(start: SystemTime, steps: i32) -> Result<SystemTime, DomainError> {
+    let start = calendar_date(start)?;
+    let (year, month) = shift_month(start.year(), month_index(start.month()), steps)?;
+    month_start(year, month)
+}
+
 fn shift_month(year: i32, month: i32, delta: i32) -> Result<(i32, i32), DomainError> {
     let index = year
         .checked_mul(12)
@@ -491,6 +498,25 @@ mod tests {
             ReportPeriod::week_containing(date(2026, 11, 16)?)?.start(),
             date(2026, 11, 16)?
         );
+        Ok(())
+    }
+
+    #[test]
+    fn previous_steps_back_one_week_or_month() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = account(&mut ledger)?;
+        let products = category(&mut ledger, "Продукты", None)?;
+        spend(&mut ledger, cash, products, date(2026, 11, 10)?, 400)?;
+        spend(&mut ledger, cash, products, date(2026, 11, 2)?, 2_000)?;
+
+        let previous_week = ReportPeriod::week_containing(date(2026, 11, 22)?)?.previous()?;
+        assert_eq!(previous_week.unit(), PeriodUnit::Week);
+        assert_eq!(previous_week.start(), date(2026, 11, 9)?);
+        assert_eq!(spent(&ledger, previous_week), 400);
+
+        let previous_month = ReportPeriod::month(2026, 1)?.previous()?;
+        assert_eq!(previous_month.unit(), PeriodUnit::Month);
+        assert_eq!(previous_month.start(), date(2025, 12, 1)?);
         Ok(())
     }
 

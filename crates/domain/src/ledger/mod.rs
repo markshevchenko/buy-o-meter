@@ -23,7 +23,7 @@ pub use report::{
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Ledger {
     next_account_id: u64,
     accounts: Vec<Account>,

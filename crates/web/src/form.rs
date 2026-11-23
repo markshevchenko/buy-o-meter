@@ -44,9 +44,9 @@ pub(crate) fn Editor(
             save_form(ledger, mode, editing, kind, fields, message);
         }>
             <h2>{title}</h2>
-            {kind_select(kind)}
+            {kind_select(ledger, kind, fields.category)}
             {move || fields_for(kind.get(), ledger, fields)}
-            <AccountMaker ledger=ledger selected=fields.account />
+            <AccountMaker ledger=ledger kind=kind fields=fields />
             <p class="error">{move || message.get().unwrap_or_default()}</p>
             <button type="submit">"Сохранить"</button>
             {delete_button(editing, ledger, mode, message)}
@@ -80,7 +80,7 @@ fn save_form(
     let draft = match read_draft(fields) {
         Ok(draft) => draft,
         Err(error) => {
-            message.set(Some(error_text(&error).to_owned()));
+            message.set(Some(error_text(&error)));
             return;
         }
     };
@@ -88,7 +88,7 @@ fn save_form(
     let outcome = ledger.try_update(|ledger| apply(ledger, editing, kind, draft));
     match outcome {
         Some(Ok(())) => mode.set(Mode::Feed),
-        Some(Err(error)) => message.set(Some(error_text(&error).to_owned())),
+        Some(Err(error)) => message.set(Some(error_text(&error))),
         None => {}
     }
 }
@@ -328,20 +328,29 @@ fn direction_options(direction: RwSignal<String>) -> impl IntoView {
     }
 }
 
-fn kind_select(kind: RwSignal<OperationKind>) -> impl IntoView {
+fn kind_select(
+    ledger: RwSignal<Ledger>,
+    kind: RwSignal<OperationKind>,
+    category: RwSignal<String>,
+) -> impl IntoView {
     view! {
         <label>
             "Тип"
-            {move || kind_options(kind)}
+            {move || kind_options(ledger, kind, category)}
         </label>
     }
 }
 
-fn kind_options(kind: RwSignal<OperationKind>) -> impl IntoView {
+fn kind_options(
+    ledger: RwSignal<Ledger>,
+    kind: RwSignal<OperationKind>,
+    category: RwSignal<String>,
+) -> impl IntoView {
     let current = kind.get();
     view! {
         <select on:change=move |event| {
             if let Some(next) = kind_from_name(&event_target_value(&event)) {
+                keep_fitting_category(ledger, category, next);
                 kind.set(next);
             }
         }>
@@ -351,6 +360,25 @@ fn kind_options(kind: RwSignal<OperationKind>) -> impl IntoView {
                 .map(|item| kind_option(item, current))
                 .collect_view()}
         </select>
+    }
+}
+
+fn keep_fitting_category(
+    ledger: RwSignal<Ledger>,
+    category: RwSignal<String>,
+    kind: OperationKind,
+) {
+    if !matches!(kind, OperationKind::Expense | OperationKind::Income) {
+        return;
+    }
+    let current = category.get();
+    let fits = ledger.with(|ledger| {
+        category_options(ledger, kind)
+            .iter()
+            .any(|(id, _)| id == &current)
+    });
+    if !fits {
+        category.set(String::new());
     }
 }
 
@@ -368,10 +396,29 @@ fn delete_button(
     let Some(id) = editing else {
         return ().into_any();
     };
+    let confirming = RwSignal::new(false);
+    view! { {move || delete_controls(confirming, ledger, mode, id, message)} }.into_any()
+}
+
+fn delete_controls(
+    confirming: RwSignal<bool>,
+    ledger: RwSignal<Ledger>,
+    mode: RwSignal<Mode>,
+    id: OperationId,
+    message: RwSignal<Option<String>>,
+) -> AnyView {
+    if !confirming.get() {
+        return view! {
+            <button type="button" on:click=move |_| confirming.set(true)>"Удалить"</button>
+        }
+        .into_any();
+    }
     view! {
+        <p>"Удалить эту операцию?"</p>
         <button type="button" on:click=move |_| remove_operation(ledger, mode, id, message)>
             "Удалить"
         </button>
+        <button type="button" on:click=move |_| confirming.set(false)>"Отмена"</button>
     }
     .into_any()
 }
@@ -385,13 +432,17 @@ fn remove_operation(
     let outcome = ledger.try_update(|ledger| ledger.delete_operation(id));
     match outcome {
         Some(Ok(())) => mode.set(Mode::Feed),
-        Some(Err(error)) => message.set(Some(error_text(&error).to_owned())),
+        Some(Err(error)) => message.set(Some(error_text(&error))),
         None => {}
     }
 }
 
 #[component]
-fn AccountMaker(ledger: RwSignal<Ledger>, selected: RwSignal<String>) -> impl IntoView {
+fn AccountMaker(
+    ledger: RwSignal<Ledger>,
+    kind: RwSignal<OperationKind>,
+    fields: Fields,
+) -> impl IntoView {
     let name = RwSignal::new(String::new());
     let currency = RwSignal::new("RUB".to_owned());
     let opening = RwSignal::new("0".to_owned());
@@ -404,7 +455,9 @@ fn AccountMaker(ledger: RwSignal<Ledger>, selected: RwSignal<String>) -> impl In
             {labeled_input("Начальный остаток", opening, "number", "")}
             <button
                 type="button"
-                on:click=move |_| create_account(ledger, selected, name, currency, opening, note)
+                on:click=move |_| {
+                    create_account(ledger, kind, fields, name, currency, opening, note);
+                }
             >
                 "Создать счёт"
             </button>
@@ -415,7 +468,8 @@ fn AccountMaker(ledger: RwSignal<Ledger>, selected: RwSignal<String>) -> impl In
 
 fn create_account(
     ledger: RwSignal<Ledger>,
-    selected: RwSignal<String>,
+    kind: RwSignal<OperationKind>,
+    fields: Fields,
     name: RwSignal<String>,
     currency: RwSignal<String>,
     opening: RwSignal<String>,
@@ -443,9 +497,19 @@ fn create_account(
         })
     });
     if let Some(Ok(id)) = created {
-        selected.set(id.as_u64().to_string());
+        place_new_account(kind.get(), fields, id.as_u64().to_string());
         name.set(String::new());
         note.set(String::new());
+    }
+}
+
+fn place_new_account(kind: OperationKind, fields: Fields, id: String) {
+    if fields.account.get().is_empty() {
+        fields.account.set(id);
+        return;
+    }
+    if kind == OperationKind::Transfer && fields.to_account.get().is_empty() {
+        fields.to_account.set(id);
     }
 }
 

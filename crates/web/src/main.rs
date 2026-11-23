@@ -1,6 +1,7 @@
 mod draft;
 mod form;
 mod mode;
+mod quick;
 mod text;
 
 use leptos::prelude::*;
@@ -10,6 +11,7 @@ use domain::{FeedDay, FeedLine, Ledger, OperationId, OperationKind};
 use draft::initial_ledger;
 use form::Editor;
 use mode::Mode;
+use quick::quick_page;
 use text::{format_day, kind_name, line_text};
 
 fn main() {
@@ -28,6 +30,7 @@ fn App() -> impl IntoView {
                 Mode::Feed => feed_page(ledger, mode).into_any(),
                 Mode::Create(kind) => create_page(ledger, mode, kind).into_any(),
                 Mode::Edit(id) => edit_page(ledger, mode, id).into_any(),
+                Mode::Quick => quick_page(ledger, mode).into_any(),
             }}
         </main>
     }
@@ -35,11 +38,14 @@ fn App() -> impl IntoView {
 
 fn feed_page(ledger: RwSignal<Ledger>, mode: RwSignal<Mode>) -> impl IntoView {
     view! {
+        {move || feed_body(ledger, mode)}
         <section class="add">
+            <button type="button" class="link" on:click=move |_| mode.set(Mode::Quick)>
+                "Остатки и долги"
+            </button>
             <p>"Добавить"</p>
             {add_buttons(ledger, mode)}
         </section>
-        {move || feed_body(ledger, mode)}
     }
 }
 

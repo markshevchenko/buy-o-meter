@@ -5,4 +5,5 @@ pub(crate) enum Mode {
     Feed,
     Create(OperationKind),
     Edit(OperationId),
+    Quick,
 }

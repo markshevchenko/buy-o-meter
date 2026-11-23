@@ -1,6 +1,9 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use domain::{DomainError, FeedLine, FeedMoney, OperationKind, RepaymentDirection};
+use domain::{
+    DomainError, FeedLine, FeedMoney, MissingDebtFields, MissingFields, MissingRepaymentFields,
+    MissingTransferFields, OperationKind, RepaymentDirection,
+};
 
 pub(crate) fn kind_name(kind: OperationKind) -> &'static str {
     match kind {
@@ -93,22 +96,93 @@ pub(crate) fn parse_date(text: &str) -> Result<SystemTime, DomainError> {
     domain::date(year, month, day)
 }
 
-pub(crate) fn error_text(error: &DomainError) -> &'static str {
+pub(crate) fn error_text(error: &DomainError) -> String {
     match error {
-        DomainError::AccountRequired | DomainError::AccountNotFound => "Нужен счёт",
-        DomainError::CategoryNotFound => "Нужна категория",
-        DomainError::MissingFields(_) => "Заполните счёт, категорию и сумму",
-        DomainError::MissingTransferFields(_) => "Заполните счета и суммы перевода",
-        DomainError::MissingDebtFields(_) => "Заполните счёт, контрагента и сумму",
-        DomainError::MissingRepaymentFields(_) => "Заполните возврат долга",
-        DomainError::NoDebt => "Нет такого долга",
-        DomainError::RepaymentExceedsDebt { .. } => "Сумма больше остатка долга",
-        DomainError::SameAccount => "Выберите разные счета",
-        DomainError::InvalidDate => "Некорректная дата",
-        DomainError::OperationNotFound => "Операция не найдена",
-        DomainError::SubsequentRepaymentsDoNotMatch => "Возвраты не сходятся с долгом",
-        _ => "Не удалось сохранить",
+        DomainError::AccountRequired | DomainError::AccountNotFound => "Нужен счёт".to_owned(),
+        DomainError::CategoryNotFound => "Нужна категория".to_owned(),
+        DomainError::MissingFields(fields) => missing_money(fields),
+        DomainError::MissingTransferFields(fields) => missing_transfer(fields),
+        DomainError::MissingDebtFields(fields) => missing_debt(fields),
+        DomainError::MissingRepaymentFields(fields) => missing_repayment(fields),
+        DomainError::NoDebt => "Нет такого долга".to_owned(),
+        DomainError::RepaymentExceedsDebt { remaining } => {
+            format!("Сумма больше остатка долга ({remaining})")
+        }
+        DomainError::SameAccount => "Выберите разные счета".to_owned(),
+        DomainError::InvalidDate => "Некорректная дата".to_owned(),
+        DomainError::OperationNotFound => "Операция не найдена".to_owned(),
+        DomainError::SubsequentRepaymentsDoNotMatch => "Возвраты не сходятся с долгом".to_owned(),
+        _ => "Не удалось сохранить".to_owned(),
     }
+}
+
+fn missing_money(fields: &MissingFields) -> String {
+    let mut parts = Vec::new();
+    if fields.account {
+        parts.push("счёт");
+    }
+    if fields.category {
+        parts.push("категорию");
+    }
+    if fields.amount {
+        parts.push("сумму");
+    }
+    join_missing(&parts)
+}
+
+fn missing_transfer(fields: &MissingTransferFields) -> String {
+    let mut parts = Vec::new();
+    if fields.from_account {
+        parts.push("счёт списания");
+    }
+    if fields.to_account {
+        parts.push("счёт зачисления");
+    }
+    if fields.amount {
+        parts.push("сумму");
+    }
+    if fields.to_amount {
+        parts.push("сумму зачисления");
+    }
+    join_missing(&parts)
+}
+
+fn missing_debt(fields: &MissingDebtFields) -> String {
+    let mut parts = Vec::new();
+    if fields.account {
+        parts.push("счёт");
+    }
+    if fields.counterparty {
+        parts.push("контрагента");
+    }
+    if fields.amount {
+        parts.push("сумму");
+    }
+    join_missing(&parts)
+}
+
+fn missing_repayment(fields: &MissingRepaymentFields) -> String {
+    let mut parts = Vec::new();
+    if fields.account {
+        parts.push("счёт");
+    }
+    if fields.counterparty {
+        parts.push("контрагента");
+    }
+    if fields.direction {
+        parts.push("направление");
+    }
+    if fields.amount {
+        parts.push("сумму");
+    }
+    join_missing(&parts)
+}
+
+fn join_missing(parts: &[&str]) -> String {
+    if parts.is_empty() {
+        return "Заполните поля".to_owned();
+    }
+    format!("Заполните {}", parts.join(", "))
 }
 
 fn money_text(money: &FeedMoney) -> String {

@@ -8,6 +8,7 @@ use crate::category::{Category, CategoryId};
 use crate::clock::{self, Clock};
 use crate::currency::Currency;
 use crate::error::DomainError;
+use crate::operation::{Expense, Income};
 
 /// Расходы или доходы в отчёте по категориям.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -226,9 +227,8 @@ impl CategoryMonths {
 impl Ledger {
     #[must_use]
     pub fn category_report(&self, kind: ReportKind, period: ReportPeriod) -> CategoryReport {
-        let _ = kind;
         CategoryReport {
-            categories: self.report_roots(&self.expense_totals(period)),
+            categories: self.report_roots(&self.kind_totals(kind, period)),
         }
     }
 
@@ -273,21 +273,33 @@ impl Ledger {
             .collect()
     }
 
-    fn expense_totals(&self, period: ReportPeriod) -> Vec<(CategoryId, Vec<CurrencyAmount>)> {
+    fn kind_totals(
+        &self,
+        kind: ReportKind,
+        period: ReportPeriod,
+    ) -> Vec<(CategoryId, Vec<CurrencyAmount>)> {
+        match kind {
+            ReportKind::Expense => self.posted_totals(period, &self.expenses, expense_posting),
+            ReportKind::Income => self.posted_totals(period, &self.incomes, income_posting),
+        }
+    }
+
+    fn posted_totals<T>(
+        &self,
+        period: ReportPeriod,
+        items: &[T],
+        posting_of: impl Fn(&T) -> Posting,
+    ) -> Vec<(CategoryId, Vec<CurrencyAmount>)> {
         let mut totals = Vec::new();
-        for expense in &self.expenses {
-            if !period.contains(expense.date()) {
+        for item in items {
+            let posting = posting_of(item);
+            if !period.contains(posting.date) {
                 continue;
             }
-            let Some(currency) = self.currency_of(expense.account_id()) else {
+            let Some(currency) = self.currency_of(posting.account_id) else {
                 continue;
             };
-            add_total(
-                &mut totals,
-                expense.category_id(),
-                currency,
-                expense.amount(),
-            );
+            add_total(&mut totals, posting.category_id, currency, posting.amount);
         }
         totals
     }
@@ -308,6 +320,31 @@ impl Ledger {
             .iter()
             .any(|category| category.id() == category_id);
         todo!("{kind:?} {category_id:?} {today:?}")
+    }
+}
+
+struct Posting {
+    date: SystemTime,
+    account_id: AccountId,
+    category_id: CategoryId,
+    amount: i64,
+}
+
+fn expense_posting(expense: &Expense) -> Posting {
+    Posting {
+        date: expense.date(),
+        account_id: expense.account_id(),
+        category_id: expense.category_id(),
+        amount: expense.amount(),
+    }
+}
+
+fn income_posting(income: &Income) -> Posting {
+    Posting {
+        date: income.date(),
+        account_id: income.account_id(),
+        category_id: income.category_id(),
+        amount: income.amount(),
     }
 }
 
@@ -403,7 +440,7 @@ mod tests {
     use crate::clock::{date, FixedClock};
     use crate::currency::Currency;
     use crate::error::DomainError;
-    use crate::operation::NewExpense;
+    use crate::operation::{NewExpense, NewIncome};
 
     use super::{Ledger, PeriodUnit, ReportKind, ReportPeriod};
 
@@ -517,6 +554,39 @@ mod tests {
         let previous_month = ReportPeriod::month(2026, 1)?.previous()?;
         assert_eq!(previous_month.unit(), PeriodUnit::Month);
         assert_eq!(previous_month.start(), date(2025, 12, 1)?);
+        Ok(())
+    }
+
+    #[test]
+    fn report_kind_keeps_expenses_and_incomes_apart() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = account(&mut ledger)?;
+        let products = category(&mut ledger, "Продукты", None)?;
+        let salary = ledger.create_category(CreateCategory {
+            name: "Зарплата".to_owned(),
+            parent_id: None,
+            applicability: Some(Applicability::Income),
+        })?;
+        let day = date(2026, 11, 22)?;
+        spend(&mut ledger, cash, products, day, 5_000)?;
+        ledger.add_income(NewIncome {
+            date: day,
+            account_id: Some(cash),
+            category_id: Some(salary),
+            amount: Some(80_000),
+            comment: String::new(),
+        })?;
+
+        let period = ReportPeriod::month(2026, 11)?;
+        let expenses = ledger.category_report(ReportKind::Expense, period);
+        assert_eq!(expenses.categories().len(), 1);
+        assert_eq!(expenses.categories()[0].name(), "Продукты");
+        assert_eq!(expenses.categories()[0].amount(&Currency::new("RUB")), 5_000);
+
+        let incomes = ledger.category_report(ReportKind::Income, period);
+        assert_eq!(incomes.categories().len(), 1);
+        assert_eq!(incomes.categories()[0].name(), "Зарплата");
+        assert_eq!(incomes.categories()[0].amount(&Currency::new("RUB")), 80_000);
         Ok(())
     }
 

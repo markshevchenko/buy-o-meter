@@ -11,6 +11,14 @@ pub struct FeedMoney {
 }
 
 impl FeedMoney {
+    pub(crate) fn new(amount: i64, currency: Currency, account_name: String) -> Self {
+        Self {
+            amount,
+            currency,
+            account_name,
+        }
+    }
+
     #[must_use]
     pub fn amount(&self) -> i64 {
         self.amount
@@ -95,6 +103,14 @@ pub struct FeedDay {
 }
 
 impl FeedDay {
+    pub(crate) fn new(date: SystemTime, lines: Vec<FeedLine>) -> Self {
+        Self { date, lines }
+    }
+
+    pub(crate) fn push_line(&mut self, line: FeedLine) {
+        self.lines.push(line);
+    }
+
     #[must_use]
     pub fn date(&self) -> SystemTime {
         self.date

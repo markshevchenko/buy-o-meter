@@ -4,6 +4,56 @@ use crate::account::AccountId;
 use crate::category::CategoryId;
 use crate::clock::Clock;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct OperationId(u64);
+
+impl OperationId {
+    #[must_use]
+    pub const fn from_u64(value: u64) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn as_u64(self) -> u64 {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperationKind {
+    Expense,
+    Income,
+    Transfer,
+    Lend,
+    Borrow,
+    Repayment,
+}
+
+/// Операция в ленте. Номер внутри дня — место среди записей этой даты, с единицы.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OperationEntry {
+    id: OperationId,
+    date: SystemTime,
+    kind: OperationKind,
+}
+
+impl OperationEntry {
+    #[must_use]
+    pub fn id(&self) -> OperationId {
+        self.id
+    }
+
+    #[must_use]
+    pub fn date(&self) -> SystemTime {
+        self.date
+    }
+
+    #[must_use]
+    pub fn kind(&self) -> OperationKind {
+        self.kind
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RepaymentDirection {
     Received,
@@ -499,6 +549,44 @@ impl Repayment {
     #[must_use]
     pub fn amount(&self) -> i64 {
         self.amount
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OperationForm {
+    Expense(NewExpense),
+    Income(NewIncome),
+    Transfer(NewTransfer),
+    Lend(NewLend),
+    Borrow(NewBorrow),
+    Repayment(NewRepayment),
+}
+
+impl OperationForm {
+    #[must_use]
+    pub fn kind(&self) -> OperationKind {
+        match self {
+            Self::Expense(_) => OperationKind::Expense,
+            Self::Income(_) => OperationKind::Income,
+            Self::Transfer(_) => OperationKind::Transfer,
+            Self::Lend(_) => OperationKind::Lend,
+            Self::Borrow(_) => OperationKind::Borrow,
+            Self::Repayment(_) => OperationKind::Repayment,
+        }
+    }
+
+    /// Совпадающие поля сохраняют значения, остальные у нового типа пустые.
+    /// Дата и сумма есть у всех. Счёт тоже: у перевода это счёт списания,
+    /// счёт зачисления и вторая сумма при переходе на перевод пустые.
+    /// Категория сохраняется между расходом и доходом.
+    /// Комментарий сохраняется между расходом, доходом и переводом.
+    /// Контрагент сохраняется между выдачей, займом и возвратом.
+    /// Направление есть только у возврата и при переходе на него пустое.
+    /// Тот же тип возвращает форму без изменений.
+    #[must_use]
+    pub fn switch_kind(self, kind: OperationKind) -> Self {
+        let _ = kind;
+        todo!()
     }
 }
 

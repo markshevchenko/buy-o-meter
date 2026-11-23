@@ -47,6 +47,8 @@ pub enum DomainError {
     RepaymentExceedsDebt { remaining: i64 },
     CounterpartyNotFound,
     CounterpartyHasDebts,
+    OperationNotFound,
+    SubsequentRepaymentsDoNotMatch,
     MixedCurrencies,
     InvalidDate,
     SameAccount,

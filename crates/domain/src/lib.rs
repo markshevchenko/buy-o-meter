@@ -19,6 +19,6 @@ pub use error::{
 pub use ledger::Ledger;
 pub use operation::{
     Borrow, Expense, Income, Lend, NewBorrow, NewExpense, NewIncome, NewLend, NewRepayment,
-    NewTransfer, OperationDraft, Record, Repayment, RepaymentDirection, Transfer,
-    TransferAmountFields,
+    NewTransfer, OperationDraft, OperationEntry, OperationForm, OperationId, OperationKind, Record,
+    Repayment, RepaymentDirection, Transfer, TransferAmountFields,
 };

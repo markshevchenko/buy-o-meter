@@ -9,8 +9,8 @@ use crate::error::{
 };
 use crate::operation::{
     Borrow, Expense, Income, Lend, NewBorrow, NewExpense, NewIncome, NewLend, NewRepayment,
-    NewTransfer, OperationDraft, Record, Repayment, RepaymentDirection, Transfer,
-    TransferAmountFields,
+    NewTransfer, OperationDraft, OperationEntry, OperationForm, OperationId, Record, Repayment,
+    RepaymentDirection, Transfer, TransferAmountFields,
 };
 use crate::starter::{EXPENSE_TREE, INCOME_TREE, StarterGroup};
 
@@ -517,6 +517,53 @@ impl Ledger {
     #[must_use]
     pub fn repayments(&self) -> &[Repayment] {
         &self.repayments
+    }
+
+    /// Лента операций, внесённых через `add_expense`, `add_income`, `add_transfer`,
+    /// `add_lend`, `add_borrow` и `add_repayment`.
+    /// Сначала более ранние даты; внутри дня — в порядке добавления, общем для всех типов.
+    /// Номер внутри дня — место среди операций этой даты, с единицы.
+    /// Черновики `add_operation` в ленту не входят.
+    #[must_use]
+    pub fn operations(&self) -> Vec<OperationEntry> {
+        todo!()
+    }
+
+    /// Форма с текущими полями. Порядкового номера в ней нет.
+    /// Нет такой операции — `OperationNotFound`.
+    pub fn operation_form(&self, id: OperationId) -> Result<OperationForm, DomainError> {
+        let _ = id;
+        todo!()
+    }
+
+    /// Заменяет операцию, id остаётся.
+    /// Дата та же — место внутри дня то же, в том числе после смены типа.
+    /// Дата другая — в старом дне следующие сдвигаются к началу, в новом операция становится последней.
+    /// Пустые поля — те же ошибки, что у добавления этого типа; лента и остатки не меняются.
+    /// Возврат проверяется как `add_repayment` по состоянию без прежней записи этой операции:
+    /// нет долга — `NoDebt`, сумма больше остатка — `RepaymentExceedsDebt`.
+    /// Если после замены выдача или займ не покрывает уже внесённые возвраты
+    /// по тому же имени, валюте и направлению — `SubsequentRepaymentsDoNotMatch`, ничего не меняется.
+    /// Новое имя контрагента попадает в список, как при добавлении. Прежнее имя из списка само не исчезает.
+    /// Смена счёта пересчитывает остатки обоих. Смена категории пересчитывает итоги.
+    pub fn update_operation(
+        &mut self,
+        id: OperationId,
+        form: OperationForm,
+    ) -> Result<(), DomainError> {
+        let _ = (id, form);
+        todo!()
+    }
+
+    /// Удаляет операцию. Следующие в её дне сдвигаются к началу.
+    /// Остатки, долги и итоги категорий пересчитываются.
+    /// Нет такой операции — `OperationNotFound`, ничего не меняется.
+    /// Если без этой выдачи или займа возвраты больше долга —
+    /// `SubsequentRepaymentsDoNotMatch`, операция остаётся.
+    /// Удаление возврата увеличивает долг.
+    pub fn delete_operation(&mut self, id: OperationId) -> Result<(), DomainError> {
+        let _ = id;
+        todo!()
     }
 
     /// Имена для выбора, в порядке появления.

@@ -40,7 +40,10 @@ impl ReportPeriod {
     }
 
     pub fn month(year: i32, month: i32) -> Result<Self, DomainError> {
-        todo!("month {year}-{month}")
+        Ok(Self {
+            unit: PeriodUnit::Month,
+            start: month_start(year, month)?,
+        })
     }
 
     pub fn week_containing(day: SystemTime) -> Result<Self, DomainError> {
@@ -382,7 +385,7 @@ fn amount_of(amounts: &[CurrencyAmount], currency: &Currency) -> i64 {
 mod tests {
     use crate::account::{AccountId, CreateAccount};
     use crate::category::{Applicability, CategoryId, CreateCategory};
-    use crate::clock::{FixedClock, date};
+    use crate::clock::{date, FixedClock};
     use crate::currency::Currency;
     use crate::error::DomainError;
     use crate::operation::NewExpense;
@@ -432,6 +435,29 @@ mod tests {
         let report = ledger.category_report(ReportKind::Expense, period);
         assert_eq!(report.categories()[0].amount(&Currency::new("RUB")), 2_000);
         Ok(())
+    }
+
+    #[test]
+    fn month_period_counts_only_that_month() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = account(&mut ledger)?;
+        let products = category(&mut ledger, "Продукты", None)?;
+        spend(&mut ledger, cash, products, date(2026, 10, 15)?, 1_000)?;
+        spend(&mut ledger, cash, products, date(2026, 11, 2)?, 2_000)?;
+
+        let october = ReportPeriod::month(2026, 10)?;
+        assert_eq!(october.unit(), PeriodUnit::Month);
+        assert_eq!(october.start(), date(2026, 10, 1)?);
+        assert_eq!(spent(&ledger, october), 1_000);
+        assert_eq!(ReportPeriod::month(2026, 13), Err(DomainError::InvalidDate));
+        Ok(())
+    }
+
+    fn spent(ledger: &Ledger, period: ReportPeriod) -> i64 {
+        ledger
+            .category_report(ReportKind::Expense, period)
+            .categories()[0]
+            .amount(&Currency::new("RUB"))
     }
 
     fn account(ledger: &mut Ledger) -> Result<AccountId, DomainError> {

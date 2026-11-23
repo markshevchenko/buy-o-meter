@@ -116,11 +116,7 @@ fn push_line(days: &mut Vec<FeedDay>, date: SystemTime, line: FeedLine) {
     days.push(FeedDay::new(date, vec![line]));
 }
 
-fn find_saved<T>(
-    items: &[T],
-    id: OperationId,
-    get_id: impl Fn(&T) -> OperationId,
-) -> Option<&T> {
+fn find_saved<T>(items: &[T], id: OperationId, get_id: impl Fn(&T) -> OperationId) -> Option<&T> {
     items.iter().find(|item| get_id(item) == id)
 }
 

@@ -152,7 +152,7 @@ fn assemble(
 #[cfg(test)]
 mod tests {
     use super::{decode_ledger, encode_ledger};
-    use crate::account::CreateAccount;
+    use crate::account::{AccountId, CreateAccount};
     use crate::category::Applicability;
     use crate::clock::date;
     use crate::currency::Currency;
@@ -161,6 +161,18 @@ mod tests {
 
     #[test]
     fn ledger_roundtrip_keeps_private_state() {
+        let ledger = filled_ledger();
+        let account = ledger.accounts()[0].id();
+        let encoded = encode_ledger(&ledger).expect("кодирование");
+        let views: Vec<_> = encoded
+            .iter()
+            .map(|file| (file.name, file.bytes.as_slice()))
+            .collect();
+        let loaded = decode_ledger(&views).expect("декодирование");
+        assert_loaded(&ledger, &loaded, account);
+    }
+
+    fn filled_ledger() -> Ledger {
         let mut ledger = Ledger::new();
         ledger.seed_starter_categories();
         let account = ledger
@@ -200,14 +212,11 @@ mod tests {
                 amount: 15,
             })
             .expect("проводка");
+        ledger
+    }
 
-        let encoded = encode_ledger(&ledger).expect("кодирование");
-        let views: Vec<_> = encoded
-            .iter()
-            .map(|file| (file.name, file.bytes.as_slice()))
-            .collect();
-        let loaded = decode_ledger(&views).expect("декодирование");
-
+    fn assert_loaded(ledger: &Ledger, loaded: &Ledger, account: AccountId) {
+        let day = date(1969, 12, 31).expect("дата");
         assert_eq!(loaded.accounts().len(), 1);
         assert_eq!(loaded.accounts()[0].id(), account);
         assert_eq!(loaded.accounts()[0].name(), "Карта");
@@ -216,11 +225,9 @@ mod tests {
         assert!(loaded.categories().iter().any(|category| {
             category.name() == "Продукты" && category.applicability() == Applicability::Expense
         }));
-        let before = loaded.categories().len();
         let mut again = loaded.clone();
         again.seed_starter_categories();
-        assert_eq!(again.categories().len(), before);
-
+        assert_eq!(again.categories().len(), loaded.categories().len());
         assert_eq!(loaded.operations().len(), 2);
         let expense = loaded
             .operations()

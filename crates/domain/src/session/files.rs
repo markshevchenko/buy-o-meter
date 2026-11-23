@@ -11,6 +11,10 @@ pub(super) fn has_data(files: &[DriveFile]) -> bool {
     files.iter().any(|file| data_index(file.name()).is_some())
 }
 
+pub(super) fn remote_is_newer(files: &[DriveFile], seen: &Seen) -> bool {
+    files.iter().any(|file| newer_than_seen(file, seen))
+}
+
 pub(super) fn seen_from(files: &[DriveFile]) -> Seen {
     let mut seen = empty_seen();
     for file in files {
@@ -39,6 +43,16 @@ pub(super) fn decode(files: &[DriveFile]) -> Result<Ledger, SessionError> {
         .map(|file| (file.name(), file.bytes()))
         .collect();
     decode_ledger(&views).map_err(store_error)
+}
+
+fn newer_than_seen(file: &DriveFile, seen: &Seen) -> bool {
+    let Some(index) = data_index(file.name()) else {
+        return false;
+    };
+    match seen[index] {
+        Some(revision) => file.revision() > revision,
+        None => true,
+    }
 }
 
 fn write(file: LedgerFile, seen: &Seen) -> FileWrite {

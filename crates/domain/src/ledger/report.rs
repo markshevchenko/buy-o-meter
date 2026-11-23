@@ -299,11 +299,22 @@ impl Ledger {
     }
 
     fn category_postings(&self, kind: ReportKind, category_id: CategoryId) -> Vec<MoneyOnDate> {
+        let ids = self.subtree_ids(category_id);
         self.kind_postings(kind)
             .into_iter()
-            .filter(|posting| posting.category_id == category_id)
+            .filter(|posting| ids.contains(&posting.category_id))
             .filter_map(|posting| self.money_on(posting))
             .collect()
+    }
+
+    fn subtree_ids(&self, category_id: CategoryId) -> Vec<CategoryId> {
+        let mut ids = vec![category_id];
+        for category in &self.categories {
+            if category.parent_id() == Some(category_id) {
+                ids.push(category.id());
+            }
+        }
+        ids
     }
 
     fn money_on(&self, posting: Posting) -> Option<MoneyOnDate> {
@@ -385,7 +396,10 @@ fn month_of(time: SystemTime) -> Result<(i32, i32), DomainError> {
     Ok((date.year(), month_index(date.month())))
 }
 
-fn month_series(postings: &[MoneyOnDate], today: SystemTime) -> Result<CategoryMonths, DomainError> {
+fn month_series(
+    postings: &[MoneyOnDate],
+    today: SystemTime,
+) -> Result<CategoryMonths, DomainError> {
     let today = month_of(today)?;
     let Some(mut cursor) = first_month(postings)? else {
         return Ok(CategoryMonths { months: Vec::new() });
@@ -507,7 +521,7 @@ fn amount_of(amounts: &[CurrencyAmount], currency: &Currency) -> i64 {
 mod tests {
     use crate::account::{AccountId, CreateAccount};
     use crate::category::{Applicability, CategoryId, CreateCategory};
-    use crate::clock::{date, FixedClock};
+    use crate::clock::{FixedClock, date};
     use crate::currency::Currency;
     use crate::error::DomainError;
     use crate::operation::{NewExpense, NewIncome};
@@ -651,12 +665,18 @@ mod tests {
         let expenses = ledger.category_report(ReportKind::Expense, period);
         assert_eq!(expenses.categories().len(), 1);
         assert_eq!(expenses.categories()[0].name(), "Продукты");
-        assert_eq!(expenses.categories()[0].amount(&Currency::new("RUB")), 5_000);
+        assert_eq!(
+            expenses.categories()[0].amount(&Currency::new("RUB")),
+            5_000
+        );
 
         let incomes = ledger.category_report(ReportKind::Income, period);
         assert_eq!(incomes.categories().len(), 1);
         assert_eq!(incomes.categories()[0].name(), "Зарплата");
-        assert_eq!(incomes.categories()[0].amount(&Currency::new("RUB")), 80_000);
+        assert_eq!(
+            incomes.categories()[0].amount(&Currency::new("RUB")),
+            80_000
+        );
         Ok(())
     }
 
@@ -714,6 +734,37 @@ mod tests {
         assert!(month_row(&months, 2025, 4).amounts().is_empty());
         assert_eq!(month_amount(&months, 2025, 5), 2_000);
         assert_eq!(month_amount(&months, 2026, 11), 500);
+        Ok(())
+    }
+
+    #[test]
+    fn category_months_for_parent_include_children() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = account(&mut ledger)?;
+        let food = category(&mut ledger, "Питание", None)?;
+        let products = category(&mut ledger, "Продукты", Some(food))?;
+        let lunches = category(&mut ledger, "Обеды", Some(food))?;
+        let today = date(2026, 11, 22)?;
+        spend(&mut ledger, cash, products, date(2026, 9, 1)?, 100)?;
+        spend(&mut ledger, cash, food, date(2026, 10, 1)?, 700)?;
+        spend(&mut ledger, cash, products, date(2026, 10, 15)?, 1_000)?;
+        spend(&mut ledger, cash, lunches, date(2026, 11, 1)?, 300)?;
+
+        let months = ledger.category_months(ReportKind::Expense, food, today)?;
+        assert_eq!(
+            months
+                .months()
+                .first()
+                .map(|month| (month.year(), month.month())),
+            Some((2026, 9))
+        );
+        assert_eq!(month_amount(&months, 2026, 9), 100);
+        assert_eq!(month_amount(&months, 2026, 10), 1_700);
+        assert_eq!(month_amount(&months, 2026, 11), 300);
+
+        let products_months = ledger.category_months(ReportKind::Expense, products, today)?;
+        assert_eq!(month_amount(&products_months, 2026, 10), 1_000);
+        assert!(month_row(&products_months, 2026, 11).amounts().is_empty());
         Ok(())
     }
 

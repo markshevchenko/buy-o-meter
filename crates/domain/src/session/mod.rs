@@ -50,12 +50,19 @@ pub enum SessionError {
 pub struct Session<I, D> {
     identity: I,
     drive: D,
+    place: Place,
+    ledger: Option<Ledger>,
 }
 
 impl<I, D> Session<I, D> {
     #[must_use]
     pub fn new(identity: I, drive: D) -> Self {
-        Self { identity, drive }
+        Self {
+            identity,
+            drive,
+            place: Place::SignIn { message: None },
+            ledger: None,
+        }
     }
 
     #[must_use]
@@ -72,19 +79,22 @@ impl<I, D> Session<I, D> {
 impl<I: Identity, D: Drive> Session<I, D> {
     #[must_use]
     pub fn place(&self) -> Place {
-        let _ = (&self.identity, &self.drive);
-        todo!()
+        self.place
     }
 
     #[must_use]
     pub fn ledger(&self) -> Option<&Ledger> {
-        let _ = (&self.identity, &self.drive);
-        todo!()
+        self.ledger.as_ref()
     }
 
     pub fn open(&mut self) -> impl Future<Output = Place> {
-        let _ = self.ports_mut();
-        pending()
+        async move {
+            if self.identity.remembered() {
+                todo!()
+            }
+            self.show_sign_in(None);
+            self.place
+        }
     }
 
     /// Запрашивает только [`APPDATA_SCOPE`].
@@ -125,6 +135,26 @@ impl<I: Identity, D: Drive> Session<I, D> {
 
     fn ports_mut(&mut self) -> (&mut I, &mut D) {
         (&mut self.identity, &mut self.drive)
+    }
+
+    fn show_sign_in(&mut self, message: Option<&'static str>) {
+        self.place = Place::SignIn { message };
+        self.ledger = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MemoryDrive, MemoryIdentity, Place, Session};
+    use pollster::block_on;
+
+    #[test]
+    fn fresh_open_shows_sign_in_without_ledger() {
+        let mut session = Session::new(MemoryIdentity::new(), MemoryDrive::new());
+        let place = block_on(session.open());
+        assert_eq!(place, Place::SignIn { message: None });
+        assert_eq!(session.place(), Place::SignIn { message: None });
+        assert!(session.ledger().is_none());
     }
 }
 

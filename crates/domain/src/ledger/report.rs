@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use time::{Date, UtcDateTime};
 
@@ -98,7 +98,7 @@ impl ReportPeriod {
 
     /// Конец периода, не включая этот момент.
     pub fn end(self) -> Result<SystemTime, DomainError> {
-        todo!("{self:?}")
+        self.exclusive_end()
     }
 }
 
@@ -374,13 +374,22 @@ fn income_posting(income: &Income) -> Posting {
 }
 
 fn calendar_date(time: SystemTime) -> Result<Date, DomainError> {
-    let duration = time
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map_err(|_| DomainError::InvalidDate)?;
-    let seconds = i64::try_from(duration.as_secs()).map_err(|_| DomainError::InvalidDate)?;
-    UtcDateTime::from_unix_timestamp(seconds)
+    UtcDateTime::from_unix_timestamp(unix_seconds(time)?)
         .map(|moment| moment.date())
         .map_err(|_| DomainError::InvalidDate)
+}
+
+fn unix_seconds(time: SystemTime) -> Result<i64, DomainError> {
+    match time.duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(duration) => whole_seconds(duration),
+        Err(error) => whole_seconds(error.duration())?
+            .checked_neg()
+            .ok_or(DomainError::InvalidDate),
+    }
+}
+
+fn whole_seconds(duration: Duration) -> Result<i64, DomainError> {
+    i64::try_from(duration.as_secs()).map_err(|_| DomainError::InvalidDate)
 }
 
 fn month_start(year: i32, month: i32) -> Result<SystemTime, DomainError> {
@@ -638,6 +647,44 @@ mod tests {
         let previous_month = ReportPeriod::month(2026, 1)?.previous()?;
         assert_eq!(previous_month.unit(), PeriodUnit::Month);
         assert_eq!(previous_month.start(), date(2025, 12, 1)?);
+        Ok(())
+    }
+
+    #[test]
+    fn period_end_is_exclusive() -> Result<(), DomainError> {
+        let november = ReportPeriod::month(2026, 11)?;
+        assert_eq!(november.end()?, date(2026, 12, 1)?);
+        let week = ReportPeriod::week_containing(date(2026, 11, 22)?)?;
+        assert_eq!(week.end()?, date(2026, 11, 23)?);
+        Ok(())
+    }
+
+    #[test]
+    fn report_counts_days_before_1970() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = account(&mut ledger)?;
+        let products = category(&mut ledger, "Продукты", None)?;
+        let day = date(1969, 12, 31)?;
+        spend(&mut ledger, cash, products, day, 250)?;
+
+        let december = ReportPeriod::month(1969, 12)?;
+        assert_eq!(december.end()?, date(1970, 1, 1)?);
+        assert_eq!(spent(&ledger, december), 250);
+        assert_eq!(
+            spent(&ledger, ReportPeriod::month(1970, 1)?.previous()?),
+            250
+        );
+        let week = ReportPeriod::week_containing(day)?;
+        assert_eq!(week.start(), date(1969, 12, 29)?);
+        assert_eq!(spent(&ledger, week), 250);
+        assert_eq!(
+            ReportPeriod::current_month(&FixedClock::new(day))?.start(),
+            date(1969, 12, 1)?
+        );
+
+        let months = ledger.category_months(ReportKind::Expense, products, day)?;
+        assert_eq!(months.months().len(), 1);
+        assert_eq!(month_amount(&months, 1969, 12), 250);
         Ok(())
     }
 

@@ -16,6 +16,8 @@ mod operation;
 mod report;
 mod snapshot;
 
+pub(crate) use snapshot::{LedgerFile, StoreError, decode_ledger, encode_ledger};
+
 pub use report::{
     CategoryMonths, CategoryReport, CategoryReportNode, CurrencyAmount, MonthTotal, PeriodUnit,
     ReportKind, ReportPeriod,

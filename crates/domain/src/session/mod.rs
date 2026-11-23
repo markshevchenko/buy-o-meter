@@ -1,4 +1,5 @@
 mod drive;
+mod files;
 mod identity;
 
 use std::future::{Future, poll_fn};
@@ -52,6 +53,7 @@ pub struct Session<I, D> {
     drive: D,
     place: Place,
     ledger: Option<Ledger>,
+    seen: files::Seen,
 }
 
 impl<I, D> Session<I, D> {
@@ -62,6 +64,7 @@ impl<I, D> Session<I, D> {
             drive,
             place: Place::SignIn { message: None },
             ledger: None,
+            seen: files::empty_seen(),
         }
     }
 
@@ -99,8 +102,14 @@ impl<I: Identity, D: Drive> Session<I, D> {
 
     /// Запрашивает только [`APPDATA_SCOPE`].
     pub fn sign_in(&mut self) -> impl Future<Output = Result<Place, SessionError>> {
-        let _ = self.ports_mut();
-        pending()
+        async move {
+            let scopes = vec![APPDATA_SCOPE.to_owned()];
+            if let Err(error) = self.identity.sign_in(scopes).await {
+                self.show_sign_in(Some(SIGN_IN_REQUIRED));
+                return Err(SessionError::Auth(error));
+            }
+            self.enter_main().await
+        }
     }
 
     /// Забывает сеанс только на этом устройстве.
@@ -141,11 +150,60 @@ impl<I: Identity, D: Drive> Session<I, D> {
         self.place = Place::SignIn { message };
         self.ledger = None;
     }
+
+    async fn enter_main(&mut self) -> Result<Place, SessionError> {
+        self.load_or_seed().await?;
+        self.place = Place::Main;
+        Ok(self.place)
+    }
+
+    async fn load_or_seed(&mut self) -> Result<(), SessionError> {
+        let loaded = self.drive.load().await.map_err(SessionError::Drive)?;
+        if !files::has_data(&loaded) {
+            return self.seed_and_save().await;
+        }
+        self.install(&loaded)
+    }
+
+    async fn seed_and_save(&mut self) -> Result<(), SessionError> {
+        let mut ledger = Ledger::new();
+        ledger.seed_starter_categories();
+        self.ledger = Some(ledger);
+        self.seen = files::empty_seen();
+        self.save().await
+    }
+
+    fn install(&mut self, loaded: &[DriveFile]) -> Result<(), SessionError> {
+        self.ledger = Some(files::decode(loaded)?);
+        self.seen = files::seen_from(loaded);
+        Ok(())
+    }
+
+    async fn save(&mut self) -> Result<(), SessionError> {
+        let writes = self.pending_writes()?;
+        self.drive
+            .write(writes)
+            .await
+            .map_err(SessionError::Drive)?;
+        files::advance(&mut self.seen);
+        Ok(())
+    }
+
+    fn pending_writes(&self) -> Result<Vec<FileWrite>, SessionError> {
+        let ledger = self
+            .ledger
+            .as_ref()
+            .ok_or(SessionError::Drive(DriveError::Unavailable))?;
+        files::writes(ledger, &self.seen)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{MemoryDrive, MemoryIdentity, Place, Session};
+    use super::{
+        APPDATA_SCOPE, AuthError, MemoryDrive, MemoryIdentity, Place, SIGN_IN_REQUIRED, Session,
+        SessionError,
+    };
     use pollster::block_on;
 
     #[test]
@@ -154,6 +212,44 @@ mod tests {
         let place = block_on(session.open());
         assert_eq!(place, Place::SignIn { message: None });
         assert_eq!(session.place(), Place::SignIn { message: None });
+        assert!(session.ledger().is_none());
+    }
+
+    #[test]
+    fn sign_in_seeds_empty_drive_with_only_app_data_scope() {
+        let identity = MemoryIdentity::new();
+        let drive = MemoryDrive::new();
+        let mut session = Session::new(identity.clone(), drive.clone());
+        block_on(session.open());
+        let place = block_on(session.sign_in()).expect("вход");
+        assert_eq!(place, Place::Main);
+        assert_eq!(identity.requested_scopes(), vec![APPDATA_SCOPE.to_owned()]);
+        let count = session.ledger().expect("журнал").categories().len();
+        assert!(count > 0);
+        assert!(session.ledger().expect("журнал").accounts().is_empty());
+
+        let mut other = Session::new(MemoryIdentity::new(), drive);
+        block_on(other.open());
+        block_on(other.sign_in()).expect("второй вход");
+        let loaded = other.ledger().expect("журнал");
+        assert_eq!(loaded.categories().len(), count);
+        assert!(loaded.accounts().is_empty());
+    }
+
+    #[test]
+    fn cancelled_sign_in_stays_on_sign_in() {
+        let identity = MemoryIdentity::new();
+        let mut session = Session::new(identity.clone(), MemoryDrive::new());
+        identity.reject_next_sign_in(AuthError::Cancelled);
+        block_on(session.open());
+        let error = block_on(session.sign_in()).expect_err("отказ");
+        assert_eq!(error, SessionError::Auth(AuthError::Cancelled));
+        assert_eq!(
+            session.place(),
+            Place::SignIn {
+                message: Some(SIGN_IN_REQUIRED),
+            }
+        );
         assert!(session.ledger().is_none());
     }
 }

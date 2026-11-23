@@ -8,6 +8,8 @@ license.workspace = true
 domain = { path = "../domain" }
 leptos = { version = "0.8", features = ["csr"] }
 console_error_panic_hook = "0.1"
+js-sys = "0.3"
+time = "0.3.55"
 
 [lints]
 workspace = true

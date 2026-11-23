@@ -1731,7 +1731,9 @@ version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "domain",
+ "js-sys",
  "leptos",
+ "time",
 ]
 
 [[package]]

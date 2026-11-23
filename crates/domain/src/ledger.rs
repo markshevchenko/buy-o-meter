@@ -12,7 +12,7 @@ use crate::operation::{
     NewTransfer, OperationDraft, OperationId, OperationKind, Record, Repayment, RepaymentDirection,
     Transfer, TransferAmountFields,
 };
-use crate::quick_access::QuickAccess;
+use crate::quick_access::{AccountBalance, QuickAccess};
 use crate::starter::{EXPENSE_TREE, INCOME_TREE, StarterGroup};
 
 mod edit;
@@ -82,11 +82,8 @@ impl Ledger {
 
     pub fn balance(&self, id: AccountId) -> Result<i64, DomainError> {
         let account = self.find_account(id).ok_or(DomainError::AccountNotFound)?;
-        let mut total = account.opening_balance();
-        for operation in &self.operations {
-            total += balance_effect(id, operation);
-        }
-        Ok(total)
+        let opening = account.opening_balance();
+        Ok(opening_plus_effects(id, opening, &self.operations))
     }
 
     pub fn update_account(
@@ -597,7 +594,11 @@ impl Ledger {
     /// Долги — как `my_debts` и `debts_to_me`.
     #[must_use]
     pub fn quick_access(&self) -> QuickAccess {
-        todo!()
+        QuickAccess::new(
+            account_lines(&self.accounts, &self.operations),
+            Vec::new(),
+            Vec::new(),
+        )
     }
 
     fn debt_remaining(
@@ -1149,6 +1150,28 @@ fn complete_fields(
             amount: amount.is_none(),
         })),
     }
+}
+
+fn account_lines(accounts: &[Account], operations: &[OperationDraft]) -> Vec<AccountBalance> {
+    accounts
+        .iter()
+        .map(|account| {
+            AccountBalance::new(
+                account.id(),
+                account.name().to_owned(),
+                account.currency().clone(),
+                opening_plus_effects(account.id(), account.opening_balance(), operations),
+            )
+        })
+        .collect()
+}
+
+fn opening_plus_effects(account_id: AccountId, opening: i64, operations: &[OperationDraft]) -> i64 {
+    let mut total = opening;
+    for operation in operations {
+        total += balance_effect(account_id, operation);
+    }
+    total
 }
 
 fn balance_effect(account_id: AccountId, operation: &OperationDraft) -> i64 {
@@ -3819,6 +3842,39 @@ mod tests {
         assert_eq!(repayments[1].amount(), 300);
         assert_eq!(repayments[2].date(), today);
         assert_eq!(repayments[2].amount(), 200);
+        Ok(())
+    }
+
+    #[test]
+    fn quick_access_lists_accounts_in_creation_order_with_their_balances() -> Result<(), DomainError>
+    {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 20_000,
+        })?;
+        let dollars = ledger.create_account(CreateAccount {
+            name: "Доллары".into(),
+            currency: Currency::new("USD"),
+            opening_balance: 1_000,
+        })?;
+        ledger.add_operation(OperationDraft::Expense {
+            account_id: cash,
+            amount: 3_000,
+        })?;
+
+        let snapshot = ledger.quick_access();
+        let accounts = snapshot.accounts();
+        assert_eq!(accounts.len(), 2);
+        assert_eq!(accounts[0].id(), cash);
+        assert_eq!(accounts[0].name(), "Наличные");
+        assert_eq!(accounts[0].currency().as_str(), "RUB");
+        assert_eq!(accounts[0].amount(), ledger.balance(cash)?);
+        assert_eq!(accounts[1].id(), dollars);
+        assert_eq!(accounts[1].name(), "Доллары");
+        assert_eq!(accounts[1].currency().as_str(), "USD");
+        assert_eq!(accounts[1].amount(), ledger.balance(dollars)?);
         Ok(())
     }
 }

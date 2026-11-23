@@ -11,6 +11,15 @@ pub struct AccountBalance {
 }
 
 impl AccountBalance {
+    pub(crate) fn new(id: AccountId, name: String, currency: Currency, amount: i64) -> Self {
+        Self {
+            id,
+            name,
+            currency,
+            amount,
+        }
+    }
+
     #[must_use]
     pub fn id(&self) -> AccountId {
         self.id
@@ -40,6 +49,18 @@ pub struct QuickAccess {
 }
 
 impl QuickAccess {
+    pub(crate) fn new(
+        accounts: Vec<AccountBalance>,
+        my_debts: Vec<Debt>,
+        debts_to_me: Vec<Debt>,
+    ) -> Self {
+        Self {
+            accounts,
+            my_debts,
+            debts_to_me,
+        }
+    }
+
     #[must_use]
     pub fn accounts(&self) -> &[AccountBalance] {
         &self.accounts

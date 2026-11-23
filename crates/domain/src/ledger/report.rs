@@ -47,7 +47,12 @@ impl ReportPeriod {
     }
 
     pub fn week_containing(day: SystemTime) -> Result<Self, DomainError> {
-        todo!("{day:?}")
+        let date = calendar_date(day)?;
+        let back = i64::from(date.weekday().number_days_from_monday());
+        Ok(Self {
+            unit: PeriodUnit::Week,
+            start: clock::add_days(day, -back)?,
+        })
     }
 
     pub fn previous(self) -> Result<Self, DomainError> {
@@ -465,6 +470,27 @@ mod tests {
 
         let january = ReportPeriod::month(2026, 12)?.next()?;
         assert_eq!(january.start(), date(2027, 1, 1)?);
+        Ok(())
+    }
+
+    #[test]
+    fn week_containing_starts_on_monday() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = account(&mut ledger)?;
+        let products = category(&mut ledger, "Продукты", None)?;
+        spend(&mut ledger, cash, products, date(2026, 11, 2)?, 2_000)?;
+        spend(&mut ledger, cash, products, date(2026, 11, 18)?, 300)?;
+        spend(&mut ledger, cash, products, date(2026, 11, 10)?, 400)?;
+
+        let today = date(2026, 11, 22)?;
+        let this_week = ReportPeriod::week_containing(today)?;
+        assert_eq!(this_week.unit(), PeriodUnit::Week);
+        assert_eq!(this_week.start(), date(2026, 11, 16)?);
+        assert_eq!(spent(&ledger, this_week), 300);
+        assert_eq!(
+            ReportPeriod::week_containing(date(2026, 11, 16)?)?.start(),
+            date(2026, 11, 16)?
+        );
         Ok(())
     }
 

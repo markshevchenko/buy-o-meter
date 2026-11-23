@@ -1,8 +1,10 @@
 use std::time::SystemTime;
 
+use time::{Date, UtcDateTime};
+
 use super::Ledger;
 use crate::category::CategoryId;
-use crate::clock::Clock;
+use crate::clock::{self, Clock};
 use crate::currency::Currency;
 use crate::error::DomainError;
 
@@ -29,8 +31,11 @@ pub struct ReportPeriod {
 
 impl ReportPeriod {
     pub fn current_month(clock: &impl Clock) -> Result<Self, DomainError> {
-        let _ = clock.today();
-        todo!()
+        let today = calendar_date(clock.today())?;
+        Ok(Self {
+            unit: PeriodUnit::Month,
+            start: month_start(today.year(), month_index(today.month()))?,
+        })
     }
 
     pub fn month(year: i32, month: i32) -> Result<Self, DomainError> {
@@ -207,9 +212,44 @@ impl Ledger {
     }
 }
 
+fn calendar_date(time: SystemTime) -> Result<Date, DomainError> {
+    let duration = time
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_err(|_| DomainError::InvalidDate)?;
+    let seconds = i64::try_from(duration.as_secs()).map_err(|_| DomainError::InvalidDate)?;
+    UtcDateTime::from_unix_timestamp(seconds)
+        .map(|moment| moment.date())
+        .map_err(|_| DomainError::InvalidDate)
+}
+
+fn month_start(year: i32, month: i32) -> Result<SystemTime, DomainError> {
+    clock::date(year, month, 1)
+}
+
+fn month_index(month: time::Month) -> i32 {
+    i32::from(u8::from(month))
+}
+
 fn amount_of(amounts: &[CurrencyAmount], currency: &Currency) -> i64 {
     amounts
         .iter()
         .find(|item| item.currency() == currency)
         .map_or(0, CurrencyAmount::amount)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::clock::{FixedClock, date};
+    use crate::error::DomainError;
+
+    use super::{PeriodUnit, ReportPeriod};
+
+    #[test]
+    fn current_month_starts_on_the_first() -> Result<(), DomainError> {
+        let clock = FixedClock::new(date(2026, 11, 22)?);
+        let period = ReportPeriod::current_month(&clock)?;
+        assert_eq!(period.unit(), PeriodUnit::Month);
+        assert_eq!(period.start(), date(2026, 11, 1)?);
+        Ok(())
+    }
 }

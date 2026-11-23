@@ -1,5 +1,7 @@
 use std::time::SystemTime;
 
+use serde::{Deserialize, Serialize};
+
 use super::OperationId;
 use crate::account::AccountId;
 use crate::clock::Clock;
@@ -24,9 +26,10 @@ impl NewLend {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Lend {
     id: OperationId,
+    #[serde(with = "crate::epoch")]
     date: SystemTime,
     account_id: AccountId,
     counterparty_name: String,

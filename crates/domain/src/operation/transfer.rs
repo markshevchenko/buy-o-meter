@@ -1,5 +1,7 @@
 use std::time::SystemTime;
 
+use serde::{Deserialize, Serialize};
+
 use super::OperationId;
 use crate::account::AccountId;
 use crate::clock::Clock;
@@ -34,9 +36,10 @@ impl NewTransfer {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Transfer {
     id: OperationId,
+    #[serde(with = "crate::epoch")]
     date: SystemTime,
     from_account_id: AccountId,
     to_account_id: AccountId,

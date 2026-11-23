@@ -14,6 +14,9 @@ mod edit;
 mod feed;
 mod operation;
 mod report;
+mod snapshot;
+
+pub(crate) use snapshot::{LedgerFile, StoreError, decode_ledger, encode_ledger};
 
 pub use report::{
     CategoryMonths, CategoryReport, CategoryReportNode, CurrencyAmount, MonthTotal, PeriodUnit,
@@ -23,7 +26,7 @@ pub use report::{
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Ledger {
     next_account_id: u64,
     accounts: Vec<Account>,

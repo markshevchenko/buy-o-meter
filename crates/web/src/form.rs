@@ -1,12 +1,12 @@
 use leptos::prelude::*;
 
-use domain::{Account, Category, CreateAccount, Currency, Ledger, OperationId, OperationKind};
+use domain::{Account, Category, Ledger, OperationId, OperationKind};
 
+use crate::api::{AccountSlots, AppApi, NewAccount};
 use crate::draft::{
-    Draft, apply, load_editor, needs_credited_amount, parse_account, parse_amount, parse_category,
+    Draft, load_editor, needs_credited_amount, parse_account, parse_amount, parse_category,
     parse_direction, parse_name,
 };
-use crate::mode::Mode;
 use crate::text::{error_text, kind_from_name, kind_name, parse_date};
 
 #[derive(Clone, Copy)]
@@ -24,11 +24,11 @@ struct Fields {
 
 #[component]
 pub(crate) fn Editor(
-    ledger: RwSignal<Ledger>,
-    mode: RwSignal<Mode>,
+    api: AppApi,
     editing: Option<OperationId>,
     initial_kind: OperationKind,
 ) -> impl IntoView {
+    let ledger = api.ledger();
     let loaded = ledger.with_untracked(|ledger| load_editor(ledger, editing, initial_kind));
     let kind = RwSignal::new(loaded.kind);
     let fields = fields_from(&loaded);
@@ -38,19 +38,22 @@ pub(crate) fn Editor(
     } else {
         "Новая операция"
     };
+    let submit = api.clone();
+    let maker = api.clone();
+    let back = api.clone();
     view! {
         <form on:submit=move |event| {
             event.prevent_default();
-            save_form(ledger, mode, editing, kind, fields, message);
+            save_form(submit.clone(), editing, kind, fields, message);
         }>
             <h2>{title}</h2>
             {kind_select(ledger, kind, fields.category)}
             {move || fields_for(kind.get(), ledger, fields)}
-            <AccountMaker ledger=ledger kind=kind fields=fields />
+            <AccountMaker api=maker kind=kind fields=fields />
             <p class="error">{move || message.get().unwrap_or_default()}</p>
             <button type="submit">"Сохранить"</button>
-            {delete_button(editing, ledger, mode, message)}
-            <button type="button" on:click=move |_| mode.set(Mode::Feed)>"К списку"</button>
+            {delete_button(api, editing, message)}
+            <button type="button" on:click=move |_| back.abandon()>"К списку"</button>
         </form>
     }
 }
@@ -70,8 +73,7 @@ fn fields_from(loaded: &crate::draft::Loaded) -> Fields {
 }
 
 fn save_form(
-    ledger: RwSignal<Ledger>,
-    mode: RwSignal<Mode>,
+    api: AppApi,
     editing: Option<OperationId>,
     kind: RwSignal<OperationKind>,
     fields: Fields,
@@ -84,13 +86,7 @@ fn save_form(
             return;
         }
     };
-    let kind = kind.get();
-    let outcome = ledger.try_update(|ledger| apply(ledger, editing, kind, draft));
-    match outcome {
-        Some(Ok(())) => mode.set(Mode::Feed),
-        Some(Err(error)) => message.set(Some(error_text(&error))),
-        None => {}
-    }
+    api.save_operation(editing, kind.get(), draft, message);
 }
 
 fn read_draft(fields: Fields) -> Result<Draft, domain::DomainError> {
@@ -388,22 +384,20 @@ fn kind_option(item: OperationKind, current: OperationKind) -> impl IntoView {
 }
 
 fn delete_button(
+    api: AppApi,
     editing: Option<OperationId>,
-    ledger: RwSignal<Ledger>,
-    mode: RwSignal<Mode>,
     message: RwSignal<Option<String>>,
 ) -> AnyView {
     let Some(id) = editing else {
         return ().into_any();
     };
     let confirming = RwSignal::new(false);
-    view! { {move || delete_controls(confirming, ledger, mode, id, message)} }.into_any()
+    view! { {move || delete_controls(confirming, api.clone(), id, message)} }.into_any()
 }
 
 fn delete_controls(
     confirming: RwSignal<bool>,
-    ledger: RwSignal<Ledger>,
-    mode: RwSignal<Mode>,
+    api: AppApi,
     id: OperationId,
     message: RwSignal<Option<String>>,
 ) -> AnyView {
@@ -415,7 +409,7 @@ fn delete_controls(
     }
     view! {
         <p>"Удалить эту операцию?"</p>
-        <button type="button" on:click=move |_| remove_operation(ledger, mode, id, message)>
+        <button type="button" on:click=move |_| api.delete_operation(id, message)>
             "Удалить"
         </button>
         <button type="button" on:click=move |_| confirming.set(false)>"Отмена"</button>
@@ -423,26 +417,8 @@ fn delete_controls(
     .into_any()
 }
 
-fn remove_operation(
-    ledger: RwSignal<Ledger>,
-    mode: RwSignal<Mode>,
-    id: OperationId,
-    message: RwSignal<Option<String>>,
-) {
-    let outcome = ledger.try_update(|ledger| ledger.delete_operation(id));
-    match outcome {
-        Some(Ok(())) => mode.set(Mode::Feed),
-        Some(Err(error)) => message.set(Some(error_text(&error))),
-        None => {}
-    }
-}
-
 #[component]
-fn AccountMaker(
-    ledger: RwSignal<Ledger>,
-    kind: RwSignal<OperationKind>,
-    fields: Fields,
-) -> impl IntoView {
+fn AccountMaker(api: AppApi, kind: RwSignal<OperationKind>, fields: Fields) -> impl IntoView {
     let name = RwSignal::new(String::new());
     let currency = RwSignal::new("RUB".to_owned());
     let opening = RwSignal::new("0".to_owned());
@@ -456,7 +432,7 @@ fn AccountMaker(
             <button
                 type="button"
                 on:click=move |_| {
-                    create_account(ledger, kind, fields, name, currency, opening, note);
+                    create_account(api.clone(), kind, fields, name, currency, opening, note);
                 }
             >
                 "Создать счёт"
@@ -467,7 +443,7 @@ fn AccountMaker(
 }
 
 fn create_account(
-    ledger: RwSignal<Ledger>,
+    api: AppApi,
     kind: RwSignal<OperationKind>,
     fields: Fields,
     name: RwSignal<String>,
@@ -489,28 +465,18 @@ fn create_account(
         note.set("Укажите валюту".to_owned());
         return;
     }
-    let created = ledger.try_update(|ledger| {
-        ledger.create_account(CreateAccount {
-            name: account_name,
-            currency: Currency::new(currency_code),
-            opening_balance,
-        })
+    api.create_account(NewAccount {
+        name: account_name,
+        currency: currency_code,
+        opening: opening_balance,
+        kind: kind.get(),
+        slots: AccountSlots {
+            account: fields.account,
+            to_account: fields.to_account,
+            name,
+        },
+        note,
     });
-    if let Some(Ok(id)) = created {
-        place_new_account(kind.get(), fields, id.as_u64().to_string());
-        name.set(String::new());
-        note.set(String::new());
-    }
-}
-
-fn place_new_account(kind: OperationKind, fields: Fields, id: String) {
-    if fields.account.get().is_empty() {
-        fields.account.set(id);
-        return;
-    }
-    if kind == OperationKind::Transfer && fields.to_account.get().is_empty() {
-        fields.to_account.set(id);
-    }
 }
 
 fn parse_opening(text: &str) -> Option<i64> {

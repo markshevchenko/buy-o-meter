@@ -1,10 +1,12 @@
 use std::time::SystemTime;
 
+use serde::{Deserialize, Serialize};
+
 use super::OperationId;
 use crate::account::AccountId;
 use crate::clock::Clock;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RepaymentDirection {
     Received,
     Given,
@@ -32,9 +34,10 @@ impl NewRepayment {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Repayment {
     id: OperationId,
+    #[serde(with = "crate::epoch")]
     date: SystemTime,
     account_id: AccountId,
     counterparty_name: String,

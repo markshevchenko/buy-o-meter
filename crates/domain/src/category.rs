@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
+
 use crate::error::DomainError;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CategoryId(u64);
 
 impl CategoryId {
@@ -15,14 +17,14 @@ impl CategoryId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Applicability {
     Expense,
     Income,
     Both,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Category {
     id: CategoryId,
     name: String,

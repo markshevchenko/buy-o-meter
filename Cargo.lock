@@ -291,6 +291,9 @@ dependencies = [
 name = "domain"
 version = "0.1.0"
 dependencies = [
+ "pollster",
+ "serde",
+ "serde_json",
  "time",
 ]
 
@@ -951,6 +954,12 @@ name = "pin-project-lite"
 version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c938015719552d665fd0553b90d96cd7ff58e83e4c061ca99e6bb78865a72752"
+
+[[package]]
+name = "pollster"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
 
 [[package]]
 name = "potential_utf"
@@ -1731,9 +1740,15 @@ version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "domain",
+ "futures",
  "js-sys",
  "leptos",
+ "serde",
+ "serde_json",
  "time",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

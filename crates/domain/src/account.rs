@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
+
 use crate::currency::Currency;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AccountId(u64);
 
 impl AccountId {
@@ -15,7 +17,7 @@ impl AccountId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Account {
     id: AccountId,
     name: String,

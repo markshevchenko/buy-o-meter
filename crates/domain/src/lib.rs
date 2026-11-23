@@ -3,11 +3,13 @@ mod category;
 mod clock;
 mod counterparty;
 mod currency;
+mod epoch;
 mod error;
 mod feed;
 mod ledger;
 mod operation;
 mod quick_access;
+mod session;
 mod starter;
 
 pub use account::{Account, AccountId, CreateAccount, UpdateAccount};
@@ -29,3 +31,7 @@ pub use operation::{
     Repayment, RepaymentDirection, Transfer, TransferAmountFields,
 };
 pub use quick_access::{AccountBalance, QuickAccess};
+pub use session::{
+    APPDATA_SCOPE, AuthError, DATA_FILES, Drive, DriveError, DriveFile, FileWrite, Identity,
+    MemoryDrive, MemoryIdentity, Place, Revision, SIGN_IN_REQUIRED, Session, SessionError,
+};

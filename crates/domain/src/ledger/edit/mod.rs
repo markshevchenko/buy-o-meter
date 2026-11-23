@@ -11,6 +11,16 @@ use crate::operation::{
     Repayment, RepaymentDirection, Transfer,
 };
 
+mod borrow;
+mod expense;
+mod income;
+mod lend;
+mod repayment;
+mod transfer;
+
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug, Clone, Copy)]
 pub(super) struct FeedItem {
     id: OperationId,
@@ -178,14 +188,14 @@ impl Drafted {
                 category_id,
                 amount,
                 comment,
-            } => saved_expense(id, date, account_id, category_id, amount, comment),
+            } => expense::saved_expense(id, date, account_id, category_id, amount, comment),
             Self::Income {
                 date,
                 account_id,
                 category_id,
                 amount,
                 comment,
-            } => saved_income(id, date, account_id, category_id, amount, comment),
+            } => income::saved_income(id, date, account_id, category_id, amount, comment),
             Self::Transfer {
                 date,
                 from_account_id,
@@ -193,7 +203,7 @@ impl Drafted {
                 amount,
                 to_amount,
                 comment,
-            } => saved_transfer(
+            } => transfer::saved_transfer(
                 id,
                 date,
                 from_account_id,
@@ -227,62 +237,6 @@ impl Drafted {
     }
 }
 
-fn saved_expense(
-    id: OperationId,
-    date: SystemTime,
-    account_id: AccountId,
-    category_id: CategoryId,
-    amount: i64,
-    comment: String,
-) -> Saved {
-    Saved::Expense(Expense::new(
-        id,
-        date,
-        account_id,
-        category_id,
-        amount,
-        comment,
-    ))
-}
-
-fn saved_income(
-    id: OperationId,
-    date: SystemTime,
-    account_id: AccountId,
-    category_id: CategoryId,
-    amount: i64,
-    comment: String,
-) -> Saved {
-    Saved::Income(Income::new(
-        id,
-        date,
-        account_id,
-        category_id,
-        amount,
-        comment,
-    ))
-}
-
-fn saved_transfer(
-    id: OperationId,
-    date: SystemTime,
-    from_account_id: AccountId,
-    to_account_id: AccountId,
-    amount: i64,
-    to_amount: i64,
-    comment: String,
-) -> Saved {
-    Saved::Transfer(Transfer::new(
-        id,
-        date,
-        from_account_id,
-        to_account_id,
-        amount,
-        to_amount,
-        comment,
-    ))
-}
-
 impl Ledger {
     pub(super) fn allocate_operation_id(&mut self) -> OperationId {
         let id = OperationId::from_u64(self.next_operation_id);
@@ -305,9 +259,6 @@ impl Ledger {
         self.track_draft_link(None, draft);
     }
 
-    /// Лента операций, внесённых через `add_expense`, `add_income`, `add_transfer`,
-    /// `add_lend`, `add_borrow` и `add_repayment`.
-    /// Сначала более ранние даты; внутри дня — в порядке добавления, общем для всех типов.
     /// Номер внутри дня — место среди операций этой даты, с единицы.
     /// Черновики `add_operation` в ленту не входят.
     #[must_use]
@@ -318,8 +269,6 @@ impl Ledger {
             .collect()
     }
 
-    /// Форма с текущими полями. Порядкового номера в ней нет.
-    /// Нет такой операции — `OperationNotFound`.
     pub fn operation_form(&self, id: OperationId) -> Result<OperationForm, DomainError> {
         let kind = self
             .feed_item(id)
@@ -328,16 +277,6 @@ impl Ledger {
         self.form_for(id, kind)
     }
 
-    /// Заменяет операцию, id остаётся.
-    /// Дата та же — место внутри дня то же, в том числе после смены типа.
-    /// Дата другая — в старом дне следующие сдвигаются к началу, в новом операция становится последней.
-    /// Пустые поля — те же ошибки, что у добавления этого типа; лента и остатки не меняются.
-    /// Возврат проверяется как `add_repayment` по состоянию без прежней записи этой операции:
-    /// нет долга — `NoDebt`, сумма больше остатка — `RepaymentExceedsDebt`.
-    /// Если после замены выдача или займ не покрывает уже внесённые возвраты
-    /// по тому же имени, валюте и направлению — `SubsequentRepaymentsDoNotMatch`, ничего не меняется.
-    /// Новое имя контрагента попадает в список, как при добавлении. Прежнее имя из списка само не исчезает.
-    /// Смена счёта пересчитывает остатки обоих. Смена категории пересчитывает итоги.
     pub fn update_operation(
         &mut self,
         id: OperationId,
@@ -352,12 +291,6 @@ impl Ledger {
         Ok(())
     }
 
-    /// Удаляет операцию. Следующие в её дне сдвигаются к началу.
-    /// Остатки, долги и итоги категорий пересчитываются.
-    /// Нет такой операции — `OperationNotFound`, ничего не меняется.
-    /// Если без этой выдачи или займа возвраты больше долга —
-    /// `SubsequentRepaymentsDoNotMatch`, операция остаётся.
-    /// Удаление возврата увеличивает долг.
     pub fn delete_operation(&mut self, id: OperationId) -> Result<(), DomainError> {
         let item = self.feed_item(id).ok_or(DomainError::OperationNotFound)?;
         self.ensure_delete_keeps_debts(id)?;
@@ -394,71 +327,6 @@ impl Ledger {
         }
     }
 
-    fn expense_form(&self, id: OperationId) -> Result<OperationForm, DomainError> {
-        let expense = find_by_id(&self.expenses, id, Expense::id)?;
-        Ok(OperationForm::Expense(NewExpense {
-            date: expense.date(),
-            account_id: Some(expense.account_id()),
-            category_id: Some(expense.category_id()),
-            amount: Some(expense.amount()),
-            comment: expense.comment().to_owned(),
-        }))
-    }
-
-    fn income_form(&self, id: OperationId) -> Result<OperationForm, DomainError> {
-        let income = find_by_id(&self.incomes, id, Income::id)?;
-        Ok(OperationForm::Income(NewIncome {
-            date: income.date(),
-            account_id: Some(income.account_id()),
-            category_id: Some(income.category_id()),
-            amount: Some(income.amount()),
-            comment: income.comment().to_owned(),
-        }))
-    }
-
-    fn transfer_form(&self, id: OperationId) -> Result<OperationForm, DomainError> {
-        let transfer = find_by_id(&self.transfers, id, Transfer::id)?;
-        Ok(OperationForm::Transfer(NewTransfer {
-            date: transfer.date(),
-            from_account_id: Some(transfer.from_account_id()),
-            to_account_id: Some(transfer.to_account_id()),
-            amount: Some(transfer.amount()),
-            to_amount: Some(transfer.to_amount()),
-            comment: transfer.comment().to_owned(),
-        }))
-    }
-
-    fn lend_form(&self, id: OperationId) -> Result<OperationForm, DomainError> {
-        let lend = find_by_id(&self.lends, id, Lend::id)?;
-        Ok(OperationForm::Lend(NewLend {
-            date: lend.date(),
-            account_id: Some(lend.account_id()),
-            counterparty: Some(lend.counterparty_name().to_owned()),
-            amount: Some(lend.amount()),
-        }))
-    }
-
-    fn borrow_form(&self, id: OperationId) -> Result<OperationForm, DomainError> {
-        let borrow = find_by_id(&self.borrows, id, Borrow::id)?;
-        Ok(OperationForm::Borrow(NewBorrow {
-            date: borrow.date(),
-            account_id: Some(borrow.account_id()),
-            counterparty: Some(borrow.counterparty_name().to_owned()),
-            amount: Some(borrow.amount()),
-        }))
-    }
-
-    fn repayment_form(&self, id: OperationId) -> Result<OperationForm, DomainError> {
-        let repayment = find_by_id(&self.repayments, id, Repayment::id)?;
-        Ok(OperationForm::Repayment(NewRepayment {
-            date: repayment.date(),
-            account_id: Some(repayment.account_id()),
-            counterparty: Some(repayment.counterparty_name().to_owned()),
-            direction: Some(repayment.direction()),
-            amount: Some(repayment.amount()),
-        }))
-    }
-
     fn prepare_form(&self, form: OperationForm) -> Result<Drafted, DomainError> {
         match form {
             OperationForm::Expense(form) => self.prepare_expense(form),
@@ -468,91 +336,6 @@ impl Ledger {
             OperationForm::Borrow(form) => self.prepare_borrow(form),
             OperationForm::Repayment(form) => self.prepare_repayment(form),
         }
-    }
-
-    fn prepare_expense(&self, form: NewExpense) -> Result<Drafted, DomainError> {
-        let (account_id, category_id, amount) = super::complete_expense(&form)?;
-        self.ensure_account_and_category(account_id, category_id)?;
-        Ok(Drafted::Expense {
-            date: form.date,
-            account_id,
-            category_id,
-            amount,
-            comment: form.comment,
-        })
-    }
-
-    fn prepare_income(&self, form: NewIncome) -> Result<Drafted, DomainError> {
-        let (account_id, category_id, amount) = super::complete_income(&form)?;
-        self.ensure_account_and_category(account_id, category_id)?;
-        Ok(Drafted::Income {
-            date: form.date,
-            account_id,
-            category_id,
-            amount,
-            comment: form.comment,
-        })
-    }
-
-    fn prepare_transfer(&self, form: NewTransfer) -> Result<Drafted, DomainError> {
-        let (from_account_id, to_account_id, amount) = super::complete_transfer(&form)?;
-        if self.accounts.is_empty() {
-            return Err(DomainError::AccountRequired);
-        }
-        if from_account_id == to_account_id {
-            return Err(DomainError::SameAccount);
-        }
-        let to_amount =
-            self.credited_amount(from_account_id, to_account_id, amount, form.to_amount)?;
-        Ok(Drafted::Transfer {
-            date: form.date,
-            from_account_id,
-            to_account_id,
-            amount,
-            to_amount,
-            comment: form.comment,
-        })
-    }
-
-    fn prepare_lend(&self, form: NewLend) -> Result<Drafted, DomainError> {
-        let (account_id, name, amount) =
-            super::complete_debt(form.account_id, form.counterparty, form.amount)?;
-        self.ensure_account(account_id)?;
-        Ok(Drafted::Lend {
-            date: form.date,
-            account_id,
-            name,
-            amount,
-        })
-    }
-
-    fn prepare_borrow(&self, form: NewBorrow) -> Result<Drafted, DomainError> {
-        let (account_id, name, amount) =
-            super::complete_debt(form.account_id, form.counterparty, form.amount)?;
-        self.ensure_account(account_id)?;
-        Ok(Drafted::Borrow {
-            date: form.date,
-            account_id,
-            name,
-            amount,
-        })
-    }
-
-    fn prepare_repayment(&self, form: NewRepayment) -> Result<Drafted, DomainError> {
-        let (account_id, name, direction, amount) = super::complete_repayment(
-            form.account_id,
-            form.counterparty,
-            form.direction,
-            form.amount,
-        )?;
-        self.ensure_account(account_id)?;
-        Ok(Drafted::Repayment {
-            date: form.date,
-            account_id,
-            name,
-            direction,
-            amount,
-        })
     }
 
     fn ensure_can_replace(&self, id: OperationId, drafted: &Drafted) -> Result<(), DomainError> {
@@ -580,14 +363,15 @@ impl Ledger {
     }
 
     fn received_raw(&self) -> DebtTotals {
-        let mut totals = super::balance_totals(self, &self.lends, super::lend_parts);
-        super::subtract_repayments(&mut totals, self, RepaymentDirection::Received);
+        let mut totals = super::debt::balance_totals(self, &self.lends, super::debt::lend_parts);
+        super::debt::subtract_repayments(&mut totals, self, RepaymentDirection::Received);
         totals
     }
 
     fn given_raw(&self) -> DebtTotals {
-        let mut totals = super::balance_totals(self, &self.borrows, super::borrow_parts);
-        super::subtract_repayments(&mut totals, self, RepaymentDirection::Given);
+        let mut totals =
+            super::debt::balance_totals(self, &self.borrows, super::debt::borrow_parts);
+        super::debt::subtract_repayments(&mut totals, self, RepaymentDirection::Given);
         totals
     }
 
@@ -601,41 +385,6 @@ impl Ledger {
             OperationKind::Borrow => self.borrow_effect(id).map(Some),
             OperationKind::Repayment => self.saved_repayment_effect(id).map(Some),
         }
-    }
-
-    fn lend_effect(&self, id: OperationId) -> Result<DebtEffect, DomainError> {
-        let lend = find_by_id(&self.lends, id, Lend::id)?;
-        debt_principal(
-            self,
-            lend.account_id(),
-            lend.counterparty_name(),
-            lend.amount(),
-            RepaymentDirection::Received,
-        )
-    }
-
-    fn borrow_effect(&self, id: OperationId) -> Result<DebtEffect, DomainError> {
-        let borrow = find_by_id(&self.borrows, id, Borrow::id)?;
-        debt_principal(
-            self,
-            borrow.account_id(),
-            borrow.counterparty_name(),
-            borrow.amount(),
-            RepaymentDirection::Given,
-        )
-    }
-
-    fn saved_repayment_effect(&self, id: OperationId) -> Result<DebtEffect, DomainError> {
-        let repayment = find_by_id(&self.repayments, id, Repayment::id)?;
-        let mut effect = debt_principal(
-            self,
-            repayment.account_id(),
-            repayment.counterparty_name(),
-            repayment.amount(),
-            repayment.direction(),
-        )?;
-        effect.amount = -effect.amount;
-        Ok(effect)
     }
 
     fn store(
@@ -893,178 +642,5 @@ fn add_effect(received: &mut DebtTotals, given: &mut DebtTotals, effect: &DebtEf
         RepaymentDirection::Received => received,
         RepaymentDirection::Given => given,
     };
-    super::add_balance(totals, &effect.name, effect.currency.clone(), effect.amount);
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::account::CreateAccount;
-    use crate::category::{Applicability, CreateCategory};
-    use crate::currency::Currency;
-    use crate::operation::{
-        NewExpense, NewLend, NewRepayment, OperationDraft, OperationForm, OperationKind,
-        RepaymentDirection,
-    };
-    use crate::{DomainError, Ledger, date};
-
-    fn rub_account(
-        ledger: &mut Ledger,
-        opening_balance: i64,
-    ) -> Result<crate::AccountId, DomainError> {
-        ledger.create_account(CreateAccount {
-            name: "Наличные".into(),
-            currency: Currency::new("RUB"),
-            opening_balance,
-        })
-    }
-
-    #[test]
-    fn balance_draft_is_not_listed() -> Result<(), DomainError> {
-        let mut ledger = Ledger::new();
-        let account_id = rub_account(&mut ledger, 1_000)?;
-        ledger.add_operation(OperationDraft::Expense {
-            account_id,
-            amount: 100,
-        })?;
-
-        assert!(ledger.operations().is_empty());
-        assert_eq!(ledger.balance(account_id)?, 900);
-        Ok(())
-    }
-
-    #[test]
-    fn renaming_counterparty_on_lend_keeps_previous_name() -> Result<(), DomainError> {
-        let mut ledger = Ledger::new();
-        let account_id = rub_account(&mut ledger, 10_000)?;
-        let day = date(2026, 11, 20)?;
-        ledger.add_lend(NewLend {
-            date: day,
-            account_id: Some(account_id),
-            counterparty: Some("Вася".into()),
-            amount: Some(100),
-        })?;
-        let id = ledger.operations()[0].id();
-        let mut form = match ledger.operation_form(id)? {
-            OperationForm::Lend(form) => form,
-            _ => panic!("lend"),
-        };
-        form.counterparty = Some("Петя".into());
-        ledger.update_operation(id, OperationForm::Lend(form))?;
-
-        let names: Vec<_> = ledger
-            .counterparties()
-            .iter()
-            .map(|counterparty| counterparty.name())
-            .collect();
-        assert_eq!(names, ["Вася", "Петя"]);
-        Ok(())
-    }
-
-    #[test]
-    fn editing_amount_keeps_the_same_day_slot() -> Result<(), DomainError> {
-        let mut ledger = Ledger::new();
-        let account_id = rub_account(&mut ledger, 10_000)?;
-        let category_id = ledger.create_category(CreateCategory {
-            name: "Продукты".into(),
-            parent_id: None,
-            applicability: Some(Applicability::Expense),
-        })?;
-        let day = date(2026, 11, 20)?;
-        for amount in [100, 200] {
-            ledger.add_expense(NewExpense {
-                date: day,
-                account_id: Some(account_id),
-                category_id: Some(category_id),
-                amount: Some(amount),
-                comment: String::new(),
-            })?;
-        }
-        let first = ledger.operations()[0].id();
-        let mut form = match ledger.operation_form(first)? {
-            OperationForm::Expense(form) => form,
-            _ => panic!("expense"),
-        };
-        form.amount = Some(150);
-        ledger.update_operation(first, OperationForm::Expense(form))?;
-
-        let ids: Vec<_> = ledger.operations().iter().map(|entry| entry.id()).collect();
-        assert_eq!(ids, [first, ledger.operations()[1].id()]);
-        assert_eq!(ledger.expenses()[0].amount(), 150);
-        assert_eq!(ledger.expenses()[1].amount(), 200);
-        Ok(())
-    }
-
-    #[test]
-    fn editing_repayment_does_not_restore_deleted_counterparty() -> Result<(), DomainError> {
-        let mut ledger = Ledger::new();
-        let account_id = rub_account(&mut ledger, 10_000)?;
-        let day = date(2026, 11, 20)?;
-        ledger.add_lend(NewLend {
-            date: day,
-            account_id: Some(account_id),
-            counterparty: Some("Вася".into()),
-            amount: Some(1_000),
-        })?;
-        ledger.add_repayment(NewRepayment {
-            date: day,
-            account_id: Some(account_id),
-            counterparty: Some("Вася".into()),
-            direction: Some(RepaymentDirection::Received),
-            amount: Some(1_000),
-        })?;
-        let counterparty_id = ledger.counterparties()[0].id();
-        ledger.delete_counterparty(counterparty_id)?;
-
-        let repayment_id = ledger
-            .operations()
-            .iter()
-            .find(|entry| entry.kind() == OperationKind::Repayment)
-            .map(|entry| entry.id())
-            .unwrap_or_else(|| panic!("repayment"));
-        let mut form = match ledger.operation_form(repayment_id)? {
-            OperationForm::Repayment(form) => form,
-            _ => panic!("repayment"),
-        };
-        form.date = date(2026, 11, 21)?;
-        ledger.update_operation(repayment_id, OperationForm::Repayment(form))?;
-
-        assert!(ledger.counterparties().is_empty());
-        Ok(())
-    }
-
-    #[test]
-    fn replacing_lend_that_backs_repayments_does_not_report_negative_remaining()
-    -> Result<(), DomainError> {
-        let mut ledger = Ledger::new();
-        let account_id = rub_account(&mut ledger, 20_000)?;
-        let day = date(2026, 11, 20)?;
-        ledger.add_lend(NewLend {
-            date: day,
-            account_id: Some(account_id),
-            counterparty: Some("Петя".into()),
-            amount: Some(10_000),
-        })?;
-        ledger.add_repayment(NewRepayment {
-            date: day,
-            account_id: Some(account_id),
-            counterparty: Some("Петя".into()),
-            direction: Some(RepaymentDirection::Received),
-            amount: Some(8_000),
-        })?;
-        let lend_id = ledger.operations()[0].id();
-        let mut form = match ledger
-            .operation_form(lend_id)?
-            .switch_kind(OperationKind::Repayment)
-        {
-            OperationForm::Repayment(form) => form,
-            _ => panic!("repayment"),
-        };
-        form.direction = Some(RepaymentDirection::Received);
-        let err = ledger.update_operation(lend_id, OperationForm::Repayment(form));
-
-        assert_eq!(err, Err(DomainError::SubsequentRepaymentsDoNotMatch));
-        assert_eq!(ledger.lends()[0].amount(), 10_000);
-        assert_eq!(ledger.repayments()[0].amount(), 8_000);
-        Ok(())
-    }
+    super::debt::add_balance(totals, &effect.name, effect.currency.clone(), effect.amount);
 }

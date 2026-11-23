@@ -315,11 +315,10 @@ impl Ledger {
         category_id: CategoryId,
         today: SystemTime,
     ) -> Result<CategoryMonths, DomainError> {
-        let _ = self
-            .categories
-            .iter()
-            .any(|category| category.id() == category_id);
-        todo!("{kind:?} {category_id:?} {today:?}")
+        let _ = (kind, today);
+        self.find_category(category_id)
+            .ok_or(DomainError::CategoryNotFound)?;
+        Ok(CategoryMonths { months: Vec::new() })
     }
 }
 
@@ -587,6 +586,27 @@ mod tests {
         assert_eq!(incomes.categories().len(), 1);
         assert_eq!(incomes.categories()[0].name(), "Зарплата");
         assert_eq!(incomes.categories()[0].amount(&Currency::new("RUB")), 80_000);
+        Ok(())
+    }
+
+    #[test]
+    fn category_months_missing_category_is_not_found() -> Result<(), DomainError> {
+        let ledger = Ledger::new();
+        let error = ledger.category_months(
+            ReportKind::Expense,
+            CategoryId::from_u64(1),
+            date(2026, 11, 22)?,
+        );
+        assert_eq!(error, Err(DomainError::CategoryNotFound));
+        Ok(())
+    }
+
+    #[test]
+    fn category_months_without_operations_is_empty() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let products = category(&mut ledger, "Продукты", None)?;
+        let months = ledger.category_months(ReportKind::Expense, products, date(2026, 11, 22)?)?;
+        assert!(months.months().is_empty());
         Ok(())
     }
 

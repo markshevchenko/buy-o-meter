@@ -9,16 +9,21 @@ use crate::error::{
 };
 use crate::operation::{
     Borrow, Expense, Income, Lend, NewBorrow, NewExpense, NewIncome, NewLend, NewRepayment,
-    NewTransfer, OperationDraft, OperationEntry, OperationForm, OperationId, Record, Repayment,
-    RepaymentDirection, Transfer, TransferAmountFields,
+    NewTransfer, OperationDraft, OperationId, OperationKind, Record, Repayment, RepaymentDirection,
+    Transfer, TransferAmountFields,
 };
 use crate::starter::{EXPENSE_TREE, INCOME_TREE, StarterGroup};
+
+mod edit;
 
 #[derive(Debug)]
 pub struct Ledger {
     next_account_id: u64,
     accounts: Vec<Account>,
     operations: Vec<OperationDraft>,
+    operation_links: Vec<Option<OperationId>>,
+    next_operation_id: u64,
+    feed: Vec<edit::FeedItem>,
     next_category_id: u64,
     categories: Vec<Category>,
     starter_seeded: bool,
@@ -40,6 +45,9 @@ impl Ledger {
             next_account_id: 1,
             accounts: Vec::new(),
             operations: Vec::new(),
+            operation_links: Vec::new(),
+            next_operation_id: 1,
+            feed: Vec::new(),
             next_category_id: 1,
             categories: Vec::new(),
             starter_seeded: false,
@@ -305,7 +313,7 @@ impl Ledger {
         if self.accounts.is_empty() {
             return Err(DomainError::AccountRequired);
         }
-        self.operations.push(draft);
+        self.track_draft(draft);
         Ok(())
     }
 
@@ -314,15 +322,18 @@ impl Ledger {
     pub fn add_expense(&mut self, input: NewExpense) -> Result<(), DomainError> {
         let (account_id, category_id, amount) = complete_expense(&input)?;
         self.ensure_account_and_category(account_id, category_id)?;
+        let id = self.allocate_operation_id();
+        let date = input.date;
         self.place_expense(Expense::new(
-            input.date,
+            id,
+            date,
             account_id,
             category_id,
             amount,
             input.comment,
         ));
         #[rustfmt::skip]
-        self.operations.push(OperationDraft::Expense {
+        self.track_operation(id, date, OperationKind::Expense, OperationDraft::Expense {
             account_id,
             amount,
         });
@@ -357,15 +368,18 @@ impl Ledger {
     pub fn add_income(&mut self, input: NewIncome) -> Result<(), DomainError> {
         let (account_id, category_id, amount) = complete_income(&input)?;
         self.ensure_account_and_category(account_id, category_id)?;
+        let id = self.allocate_operation_id();
+        let date = input.date;
         self.place_income(Income::new(
-            input.date,
+            id,
+            date,
             account_id,
             category_id,
             amount,
             input.comment,
         ));
         #[rustfmt::skip]
-        self.operations.push(OperationDraft::Income {
+        self.track_operation(id, date, OperationKind::Income, OperationDraft::Income {
             account_id,
             amount,
         });
@@ -390,8 +404,11 @@ impl Ledger {
         }
         let to_amount =
             self.credited_amount(from_account_id, to_account_id, amount, input.to_amount)?;
+        let id = self.allocate_operation_id();
+        let date = input.date;
         self.place_transfer(Transfer::new(
-            input.date,
+            id,
+            date,
             from_account_id,
             to_account_id,
             amount,
@@ -399,7 +416,7 @@ impl Ledger {
             input.comment,
         ));
         #[rustfmt::skip]
-        self.operations.push(OperationDraft::Transfer {
+        self.track_operation(id, date, OperationKind::Transfer, OperationDraft::Transfer {
             from_account_id,
             from_amount: amount,
             to_account_id,
@@ -434,9 +451,11 @@ impl Ledger {
             complete_debt(input.account_id, input.counterparty, input.amount)?;
         self.ensure_account(account_id)?;
         self.remember_counterparty(&name);
-        self.place_lend(Lend::new(input.date, account_id, name, amount));
+        let id = self.allocate_operation_id();
+        let date = input.date;
+        self.place_lend(Lend::new(id, date, account_id, name, amount));
         #[rustfmt::skip]
-        self.operations.push(OperationDraft::Lend {
+        self.track_operation(id, date, OperationKind::Lend, OperationDraft::Lend {
             account_id,
             amount,
         });
@@ -457,9 +476,11 @@ impl Ledger {
             complete_debt(input.account_id, input.counterparty, input.amount)?;
         self.ensure_account(account_id)?;
         self.remember_counterparty(&name);
-        self.place_borrow(Borrow::new(input.date, account_id, name, amount));
+        let id = self.allocate_operation_id();
+        let date = input.date;
+        self.place_borrow(Borrow::new(id, date, account_id, name, amount));
         #[rustfmt::skip]
-        self.operations.push(OperationDraft::Borrow {
+        self.track_operation(id, date, OperationKind::Borrow, OperationDraft::Borrow {
             account_id,
             amount,
         });
@@ -496,16 +517,19 @@ impl Ledger {
         if amount > remaining {
             return Err(DomainError::RepaymentExceedsDebt { remaining });
         }
+        let id = self.allocate_operation_id();
+        let date = input.date;
         #[rustfmt::skip]
         self.place_repayment(Repayment::new(
-            input.date,
+            id,
+            date,
             account_id,
             name,
             direction,
             amount,
         ));
         #[rustfmt::skip]
-        self.operations.push(OperationDraft::Repayment {
+        self.track_operation(id, date, OperationKind::Repayment, OperationDraft::Repayment {
             account_id,
             amount,
             direction,
@@ -517,53 +541,6 @@ impl Ledger {
     #[must_use]
     pub fn repayments(&self) -> &[Repayment] {
         &self.repayments
-    }
-
-    /// Лента операций, внесённых через `add_expense`, `add_income`, `add_transfer`,
-    /// `add_lend`, `add_borrow` и `add_repayment`.
-    /// Сначала более ранние даты; внутри дня — в порядке добавления, общем для всех типов.
-    /// Номер внутри дня — место среди операций этой даты, с единицы.
-    /// Черновики `add_operation` в ленту не входят.
-    #[must_use]
-    pub fn operations(&self) -> Vec<OperationEntry> {
-        todo!()
-    }
-
-    /// Форма с текущими полями. Порядкового номера в ней нет.
-    /// Нет такой операции — `OperationNotFound`.
-    pub fn operation_form(&self, id: OperationId) -> Result<OperationForm, DomainError> {
-        let _ = id;
-        todo!()
-    }
-
-    /// Заменяет операцию, id остаётся.
-    /// Дата та же — место внутри дня то же, в том числе после смены типа.
-    /// Дата другая — в старом дне следующие сдвигаются к началу, в новом операция становится последней.
-    /// Пустые поля — те же ошибки, что у добавления этого типа; лента и остатки не меняются.
-    /// Возврат проверяется как `add_repayment` по состоянию без прежней записи этой операции:
-    /// нет долга — `NoDebt`, сумма больше остатка — `RepaymentExceedsDebt`.
-    /// Если после замены выдача или займ не покрывает уже внесённые возвраты
-    /// по тому же имени, валюте и направлению — `SubsequentRepaymentsDoNotMatch`, ничего не меняется.
-    /// Новое имя контрагента попадает в список, как при добавлении. Прежнее имя из списка само не исчезает.
-    /// Смена счёта пересчитывает остатки обоих. Смена категории пересчитывает итоги.
-    pub fn update_operation(
-        &mut self,
-        id: OperationId,
-        form: OperationForm,
-    ) -> Result<(), DomainError> {
-        let _ = (id, form);
-        todo!()
-    }
-
-    /// Удаляет операцию. Следующие в её дне сдвигаются к началу.
-    /// Остатки, долги и итоги категорий пересчитываются.
-    /// Нет такой операции — `OperationNotFound`, ничего не меняется.
-    /// Если без этой выдачи или займа возвраты больше долга —
-    /// `SubsequentRepaymentsDoNotMatch`, операция остаётся.
-    /// Удаление возврата увеличивает долг.
-    pub fn delete_operation(&mut self, id: OperationId) -> Result<(), DomainError> {
-        let _ = id;
-        todo!()
     }
 
     /// Имена для выбора, в порядке появления.

@@ -38,6 +38,10 @@ pub struct OperationEntry {
 }
 
 impl OperationEntry {
+    pub(crate) fn new(id: OperationId, date: SystemTime, kind: OperationKind) -> Self {
+        Self { id, date, kind }
+    }
+
     #[must_use]
     pub fn id(&self) -> OperationId {
         self.id
@@ -128,6 +132,7 @@ impl NewExpense {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Expense {
+    id: OperationId,
     date: SystemTime,
     account_id: AccountId,
     category_id: CategoryId,
@@ -137,6 +142,7 @@ pub struct Expense {
 
 impl Expense {
     pub(crate) fn new(
+        id: OperationId,
         date: SystemTime,
         account_id: AccountId,
         category_id: CategoryId,
@@ -144,12 +150,17 @@ impl Expense {
         comment: String,
     ) -> Self {
         Self {
+            id,
             date,
             account_id,
             category_id,
             amount,
             comment,
         }
+    }
+
+    pub(crate) fn id(&self) -> OperationId {
+        self.id
     }
 
     #[must_use]
@@ -206,6 +217,7 @@ impl NewIncome {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Income {
+    id: OperationId,
     date: SystemTime,
     account_id: AccountId,
     category_id: CategoryId,
@@ -215,6 +227,7 @@ pub struct Income {
 
 impl Income {
     pub(crate) fn new(
+        id: OperationId,
         date: SystemTime,
         account_id: AccountId,
         category_id: CategoryId,
@@ -222,12 +235,17 @@ impl Income {
         comment: String,
     ) -> Self {
         Self {
+            id,
             date,
             account_id,
             category_id,
             amount,
             comment,
         }
+    }
+
+    pub(crate) fn id(&self) -> OperationId {
+        self.id
     }
 
     #[must_use]
@@ -292,6 +310,7 @@ impl NewTransfer {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Transfer {
+    id: OperationId,
     date: SystemTime,
     from_account_id: AccountId,
     to_account_id: AccountId,
@@ -302,6 +321,7 @@ pub struct Transfer {
 
 impl Transfer {
     pub(crate) fn new(
+        id: OperationId,
         date: SystemTime,
         from_account_id: AccountId,
         to_account_id: AccountId,
@@ -310,6 +330,7 @@ impl Transfer {
         comment: String,
     ) -> Self {
         Self {
+            id,
             date,
             from_account_id,
             to_account_id,
@@ -317,6 +338,10 @@ impl Transfer {
             to_amount,
             comment,
         }
+    }
+
+    pub(crate) fn id(&self) -> OperationId {
+        self.id
     }
 
     #[must_use]
@@ -372,6 +397,7 @@ impl NewLend {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Lend {
+    id: OperationId,
     date: SystemTime,
     account_id: AccountId,
     counterparty_name: String,
@@ -380,17 +406,23 @@ pub struct Lend {
 
 impl Lend {
     pub(crate) fn new(
+        id: OperationId,
         date: SystemTime,
         account_id: AccountId,
         counterparty_name: String,
         amount: i64,
     ) -> Self {
         Self {
+            id,
             date,
             account_id,
             counterparty_name,
             amount,
         }
+    }
+
+    pub(crate) fn id(&self) -> OperationId {
+        self.id
     }
 
     #[must_use]
@@ -436,6 +468,7 @@ impl NewBorrow {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Borrow {
+    id: OperationId,
     date: SystemTime,
     account_id: AccountId,
     counterparty_name: String,
@@ -444,17 +477,23 @@ pub struct Borrow {
 
 impl Borrow {
     pub(crate) fn new(
+        id: OperationId,
         date: SystemTime,
         account_id: AccountId,
         counterparty_name: String,
         amount: i64,
     ) -> Self {
         Self {
+            id,
             date,
             account_id,
             counterparty_name,
             amount,
         }
+    }
+
+    pub(crate) fn id(&self) -> OperationId {
+        self.id
     }
 
     #[must_use]
@@ -502,6 +541,7 @@ impl NewRepayment {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Repayment {
+    id: OperationId,
     date: SystemTime,
     account_id: AccountId,
     counterparty_name: String,
@@ -511,6 +551,7 @@ pub struct Repayment {
 
 impl Repayment {
     pub(crate) fn new(
+        id: OperationId,
         date: SystemTime,
         account_id: AccountId,
         counterparty_name: String,
@@ -518,12 +559,17 @@ impl Repayment {
         amount: i64,
     ) -> Self {
         Self {
+            id,
             date,
             account_id,
             counterparty_name,
             direction,
             amount,
         }
+    }
+
+    pub(crate) fn id(&self) -> OperationId {
+        self.id
     }
 
     #[must_use]
@@ -585,8 +631,134 @@ impl OperationForm {
     /// Тот же тип возвращает форму без изменений.
     #[must_use]
     pub fn switch_kind(self, kind: OperationKind) -> Self {
-        let _ = kind;
-        todo!()
+        if self.kind() == kind {
+            return self;
+        }
+        form_with_shared_fields(shared_fields(self), kind)
+    }
+}
+
+struct SharedFields {
+    date: SystemTime,
+    account_id: Option<AccountId>,
+    amount: Option<i64>,
+    comment: Option<String>,
+    category_id: Option<CategoryId>,
+    counterparty: Option<String>,
+}
+
+fn shared_fields(form: OperationForm) -> SharedFields {
+    match form {
+        OperationForm::Expense(form) => money_fields(
+            form.date,
+            form.account_id,
+            form.amount,
+            form.comment,
+            form.category_id,
+        ),
+        OperationForm::Income(form) => money_fields(
+            form.date,
+            form.account_id,
+            form.amount,
+            form.comment,
+            form.category_id,
+        ),
+        OperationForm::Transfer(form) => money_fields(
+            form.date,
+            form.from_account_id,
+            form.amount,
+            form.comment,
+            None,
+        ),
+        OperationForm::Lend(form) => {
+            debt_fields(form.date, form.account_id, form.amount, form.counterparty)
+        }
+        OperationForm::Borrow(form) => {
+            debt_fields(form.date, form.account_id, form.amount, form.counterparty)
+        }
+        OperationForm::Repayment(form) => {
+            debt_fields(form.date, form.account_id, form.amount, form.counterparty)
+        }
+    }
+}
+
+fn money_fields(
+    date: SystemTime,
+    account_id: Option<AccountId>,
+    amount: Option<i64>,
+    comment: String,
+    category_id: Option<CategoryId>,
+) -> SharedFields {
+    SharedFields {
+        date,
+        account_id,
+        amount,
+        comment: Some(comment),
+        category_id,
+        counterparty: None,
+    }
+}
+
+fn debt_fields(
+    date: SystemTime,
+    account_id: Option<AccountId>,
+    amount: Option<i64>,
+    counterparty: Option<String>,
+) -> SharedFields {
+    SharedFields {
+        date,
+        account_id,
+        amount,
+        comment: None,
+        category_id: None,
+        counterparty,
+    }
+}
+
+fn form_with_shared_fields(fields: SharedFields, kind: OperationKind) -> OperationForm {
+    let comment = fields.comment.unwrap_or_default();
+    match kind {
+        OperationKind::Expense => OperationForm::Expense(NewExpense {
+            date: fields.date,
+            account_id: fields.account_id,
+            category_id: fields.category_id,
+            amount: fields.amount,
+            comment,
+        }),
+        OperationKind::Income => OperationForm::Income(NewIncome {
+            date: fields.date,
+            account_id: fields.account_id,
+            category_id: fields.category_id,
+            amount: fields.amount,
+            comment,
+        }),
+        OperationKind::Transfer => OperationForm::Transfer(NewTransfer {
+            date: fields.date,
+            from_account_id: fields.account_id,
+            to_account_id: None,
+            amount: fields.amount,
+            to_amount: None,
+            comment,
+        }),
+        OperationKind::Lend => OperationForm::Lend(NewLend {
+            date: fields.date,
+            account_id: fields.account_id,
+            counterparty: fields.counterparty,
+            amount: fields.amount,
+        }),
+        OperationKind::Borrow => OperationForm::Borrow(NewBorrow {
+            date: fields.date,
+            account_id: fields.account_id,
+            counterparty: fields.counterparty,
+            amount: fields.amount,
+        }),
+        OperationKind::Repayment => OperationForm::Repayment(NewRepayment {
+            date: fields.date,
+            account_id: fields.account_id,
+            counterparty: fields.counterparty,
+            direction: None,
+            amount: fields.amount,
+        }),
     }
 }
 

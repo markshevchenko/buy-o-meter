@@ -17,7 +17,10 @@ pub use currency::Currency;
 pub use error::{
     DomainError, MissingDebtFields, MissingFields, MissingRepaymentFields, MissingTransferFields,
 };
-pub use ledger::Ledger;
+pub use ledger::{
+    CategoryMonths, CategoryReport, CategoryReportNode, CurrencyAmount, Ledger, MonthTotal,
+    PeriodUnit, ReportKind, ReportPeriod,
+};
 pub use operation::{
     Borrow, Expense, Income, Lend, NewBorrow, NewExpense, NewIncome, NewLend, NewRepayment,
     NewTransfer, OperationDraft, OperationEntry, OperationForm, OperationId, OperationKind, Record,

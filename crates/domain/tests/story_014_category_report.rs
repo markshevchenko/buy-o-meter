@@ -3,8 +3,8 @@ mod common;
 use common::{create_account, create_child, create_top};
 use domain::{
     AccountId, Applicability, CategoryId, Currency, DomainError, FixedClock, Ledger, MonthTotal,
-    NewBorrow, NewExpense, NewIncome, NewLend, NewRepayment, NewTransfer, PeriodUnit, ReportKind,
-    ReportPeriod, RepaymentDirection, add_days, date,
+    NewBorrow, NewExpense, NewIncome, NewLend, NewRepayment, NewTransfer, PeriodUnit,
+    RepaymentDirection, ReportKind, ReportPeriod, add_days, date,
 };
 
 fn rub() -> Currency {
@@ -15,10 +15,7 @@ fn usd() -> Currency {
     Currency::new("USD")
 }
 
-fn find_top<'a>(
-    report: &'a domain::CategoryReport,
-    name: &str,
-) -> &'a domain::CategoryReportNode {
+fn find_top<'a>(report: &'a domain::CategoryReport, name: &str) -> &'a domain::CategoryReportNode {
     report
         .categories()
         .iter()
@@ -129,21 +126,32 @@ fn category_report_respects_month_week_and_adjacent_periods() -> Result<(), Doma
     let october = ReportPeriod::month(2026, 10)?;
     assert_eq!(october.unit(), PeriodUnit::Month);
     assert_eq!(
-        find_top(&ledger.category_report(ReportKind::Expense, october), "Продукты").amount(&rub()),
+        find_top(
+            &ledger.category_report(ReportKind::Expense, october),
+            "Продукты"
+        )
+        .amount(&rub()),
         1_000
     );
 
     let november = october.next()?;
     assert_eq!(
-        find_top(&ledger.category_report(ReportKind::Expense, november), "Продукты").amount(&rub()),
+        find_top(
+            &ledger.category_report(ReportKind::Expense, november),
+            "Продукты"
+        )
+        .amount(&rub()),
         2_700
     );
 
     let this_week = ReportPeriod::week_containing(today)?;
     assert_eq!(this_week.unit(), PeriodUnit::Week);
     assert_eq!(
-        find_top(&ledger.category_report(ReportKind::Expense, this_week), "Продукты")
-            .amount(&rub()),
+        find_top(
+            &ledger.category_report(ReportKind::Expense, this_week),
+            "Продукты"
+        )
+        .amount(&rub()),
         300
     );
 
@@ -177,9 +185,8 @@ fn parent_total_includes_own_operations_not_listed_among_children() -> Result<()
     let food_node = find_top(&report, "Питание");
     assert_eq!(food_node.id(), food);
     assert_eq!(food_node.amount(&rub()), 3_500);
-    let children_sum =
-        find_child(food_node, "Продукты").amount(&rub())
-            + find_child(food_node, "Обеды в городе").amount(&rub());
+    let children_sum = find_child(food_node, "Продукты").amount(&rub())
+        + find_child(food_node, "Обеды в городе").amount(&rub());
     assert_eq!(children_sum, 2_500);
     assert!(food_node.amount(&rub()) > children_sum);
 

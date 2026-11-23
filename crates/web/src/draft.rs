@@ -8,6 +8,7 @@ use domain::{
 
 use crate::text::{input_date, today_input};
 
+#[derive(Clone)]
 pub(crate) struct Draft {
     pub(crate) date: SystemTime,
     pub(crate) account_id: Option<AccountId>,
@@ -31,12 +32,6 @@ pub(crate) struct Loaded {
     pub(crate) comment: String,
     pub(crate) counterparty: String,
     pub(crate) direction: String,
-}
-
-pub(crate) fn initial_ledger() -> Ledger {
-    let mut ledger = Ledger::new();
-    ledger.seed_starter_categories();
-    ledger
 }
 
 pub(crate) fn load_editor(

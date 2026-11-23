@@ -1740,9 +1740,15 @@ version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "domain",
+ "futures",
  "js-sys",
  "leptos",
+ "serde",
+ "serde_json",
  "time",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

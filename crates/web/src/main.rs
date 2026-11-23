@@ -1,15 +1,22 @@
+mod api;
 mod draft;
+mod drive_api;
 mod form;
+mod gis;
+mod google;
+mod http;
 mod mode;
 mod quick;
 mod text;
+mod token;
 
 use leptos::prelude::*;
 
-use domain::{FeedDay, FeedLine, Ledger, OperationId, OperationKind};
+use domain::{FeedDay, FeedLine, Ledger, OperationId, OperationKind, Place};
 
-use draft::initial_ledger;
+use api::AppApi;
 use form::Editor;
+use google::client_id;
 use mode::Mode;
 use quick::quick_page;
 use text::{format_day, kind_name, line_text};
@@ -21,18 +28,90 @@ fn main() {
 
 #[component]
 fn App() -> impl IntoView {
-    let ledger = RwSignal::new(initial_ledger());
-    let mode = RwSignal::new(Mode::Feed);
+    let api = AppApi::new();
+    api.open();
+    api.watch_visibility();
+    let screen = api.clone();
     view! {
         <main>
             <h1>"Покупкомер"</h1>
-            {move || match mode.get() {
-                Mode::Feed => feed_page(ledger, mode).into_any(),
-                Mode::Create(kind) => create_page(ledger, mode, kind).into_any(),
-                Mode::Edit(id) => edit_page(ledger, mode, id).into_any(),
-                Mode::Quick => quick_page(ledger, mode).into_any(),
+            {move || match screen.place().get() {
+                Place::SignIn { message } => sign_in_screen(screen.clone(), message).into_any(),
+                Place::Confirm => confirm_screen(screen.clone()).into_any(),
+                Place::Main => main_screen(screen.clone()).into_any(),
             }}
         </main>
+    }
+}
+
+fn sign_in_screen(api: AppApi, message: Option<&'static str>) -> impl IntoView {
+    view! {
+        <section class="auth">
+            <p>"Войдите через Google, чтобы хранить данные в своём Drive."</p>
+            {message.map(|text| view! { <p class="error">{text}</p> })}
+            {sign_in_action(api)}
+        </section>
+    }
+}
+
+fn sign_in_action(api: AppApi) -> AnyView {
+    if client_id().is_none() {
+        return view! { <p class="error">"Вход не настроен"</p> }.into_any();
+    }
+    view! { <button type="button" on:click=move |_| api.sign_in()>"Войти через Google"</button> }
+        .into_any()
+}
+
+fn confirm_screen(api: AppApi) -> impl IntoView {
+    view! {
+        <section class="auth">
+            <p>"Подтвердите вход через Google."</p>
+            {confirm_action(api)}
+        </section>
+    }
+}
+
+fn confirm_action(api: AppApi) -> AnyView {
+    if client_id().is_none() {
+        return view! { <p class="error">"Вход не настроен"</p> }.into_any();
+    }
+    view! { <button type="button" on:click=move |_| api.confirm()>"Подтвердить"</button> }
+        .into_any()
+}
+
+fn main_screen(api: AppApi) -> impl IntoView {
+    let mode = api.mode();
+    let ledger = api.ledger();
+    let pages = api.clone();
+    let sign_out = api.clone();
+    view! {
+        {confirm_banner(api)}
+        <button type="button" class="link" on:click=move |_| sign_out.sign_out()>"Выйти"</button>
+        {move || match mode.get() {
+            Mode::Feed => feed_page(ledger, mode).into_any(),
+            Mode::Create(kind) => create_page(pages.clone(), kind).into_any(),
+            Mode::Edit(id) => edit_page(pages.clone(), id).into_any(),
+            Mode::Quick => quick_page(ledger, mode).into_any(),
+        }}
+    }
+}
+
+fn confirm_banner(api: AppApi) -> impl IntoView {
+    let shown = api.clone();
+    view! {
+        {move || {
+            if !shown.needs_confirm().get() {
+                return ().into_any();
+            }
+            let api = shown.clone();
+            view! {
+                <section class="banner">
+                    <p>"Подтвердите вход через Google, чтобы сохранить запись."</p>
+                    <button type="button" on:click=move |_| api.confirm()>"Подтвердить"</button>
+                </section>
+            }
+            .into_any()
+        }}
     }
 }
 
@@ -109,21 +188,17 @@ fn line_button(line: FeedLine, mode: RwSignal<Mode>) -> impl IntoView {
     }
 }
 
-fn create_page(
-    ledger: RwSignal<Ledger>,
-    mode: RwSignal<Mode>,
-    kind: OperationKind,
-) -> impl IntoView {
+fn create_page(api: AppApi, kind: OperationKind) -> impl IntoView {
     let editing: Option<OperationId> = None;
-    view! { <Editor ledger mode editing initial_kind=kind /> }
+    view! { <Editor api editing initial_kind=kind /> }
 }
 
-fn edit_page(ledger: RwSignal<Ledger>, mode: RwSignal<Mode>, id: OperationId) -> impl IntoView {
-    let kind = ledger.with_untracked(|ledger| {
+fn edit_page(api: AppApi, id: OperationId) -> impl IntoView {
+    let kind = api.ledger().with_untracked(|ledger| {
         ledger
             .operation_form(id)
             .map(|form| form.kind())
             .unwrap_or(OperationKind::Expense)
     });
-    view! { <Editor ledger mode editing=Some(id) initial_kind=kind /> }
+    view! { <Editor api editing=Some(id) initial_kind=kind /> }
 }

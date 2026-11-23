@@ -595,7 +595,7 @@ impl Ledger {
     #[must_use]
     pub fn quick_access(&self) -> QuickAccess {
         let accounts = account_lines(&self.accounts, &self.operations);
-        QuickAccess::new(accounts, self.my_debts(), Vec::new())
+        QuickAccess::new(accounts, self.my_debts(), self.debts_to_me())
     }
 
     fn debt_remaining(
@@ -3894,6 +3894,39 @@ mod tests {
         let snapshot = ledger.quick_access();
         assert!(snapshot.debts_to_me().is_empty());
         assert_eq!(snapshot.my_debts(), ledger.my_debts().as_slice());
+        Ok(())
+    }
+
+    #[test]
+    fn quick_access_debts_to_me_matches_ledger_debts_to_me() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = ledger.create_account(CreateAccount {
+            name: "Наличные".into(),
+            currency: Currency::new("RUB"),
+            opening_balance: 100_000,
+        })?;
+        let dollars = ledger.create_account(CreateAccount {
+            name: "Доллары".into(),
+            currency: Currency::new("USD"),
+            opening_balance: 1_000,
+        })?;
+        let day = date(2026, 11, 22)?;
+        ledger.add_lend(NewLend {
+            date: day,
+            account_id: Some(cash),
+            counterparty: Some("Петя".into()),
+            amount: Some(5_000),
+        })?;
+        ledger.add_lend(NewLend {
+            date: day,
+            account_id: Some(dollars),
+            counterparty: Some("Петя".into()),
+            amount: Some(100),
+        })?;
+
+        let snapshot = ledger.quick_access();
+        assert!(snapshot.my_debts().is_empty());
+        assert_eq!(snapshot.debts_to_me(), ledger.debts_to_me().as_slice());
         Ok(())
     }
 }

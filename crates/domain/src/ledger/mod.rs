@@ -12,6 +12,12 @@ mod category;
 mod debt;
 mod edit;
 mod operation;
+mod report;
+
+pub use report::{
+    CategoryMonths, CategoryReport, CategoryReportNode, CurrencyAmount, MonthTotal, PeriodUnit,
+    ReportKind, ReportPeriod,
+};
 
 #[cfg(test)]
 mod tests;

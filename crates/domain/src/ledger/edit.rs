@@ -165,9 +165,7 @@ impl Drafted {
 
     fn counterparty_name(&self) -> Option<String> {
         match self {
-            Self::Lend { name, .. } | Self::Borrow { name, .. } | Self::Repayment { name, .. } => {
-                Some(name.clone())
-            }
+            Self::Lend { name, .. } | Self::Borrow { name, .. } => Some(name.clone()),
             _ => None,
         }
     }
@@ -851,6 +849,9 @@ fn reject_repayment_that_does_not_fit(
         return Ok(());
     };
     let remaining = remaining_of(&fit, received, given);
+    if remaining < 0 {
+        return Err(DomainError::SubsequentRepaymentsDoNotMatch);
+    }
     if remaining == 0 {
         return Err(DomainError::NoDebt);
     }
@@ -900,7 +901,10 @@ mod tests {
     use crate::account::CreateAccount;
     use crate::category::{Applicability, CreateCategory};
     use crate::currency::Currency;
-    use crate::operation::{NewExpense, NewLend, OperationDraft, OperationForm};
+    use crate::operation::{
+        NewExpense, NewLend, NewRepayment, OperationDraft, OperationForm, OperationKind,
+        RepaymentDirection,
+    };
     use crate::{DomainError, Ledger, date};
 
     fn rub_account(
@@ -987,6 +991,80 @@ mod tests {
         assert_eq!(ids, [first, ledger.operations()[1].id()]);
         assert_eq!(ledger.expenses()[0].amount(), 150);
         assert_eq!(ledger.expenses()[1].amount(), 200);
+        Ok(())
+    }
+
+    #[test]
+    fn editing_repayment_does_not_restore_deleted_counterparty() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let account_id = rub_account(&mut ledger, 10_000)?;
+        let day = date(2026, 11, 20)?;
+        ledger.add_lend(NewLend {
+            date: day,
+            account_id: Some(account_id),
+            counterparty: Some("Вася".into()),
+            amount: Some(1_000),
+        })?;
+        ledger.add_repayment(NewRepayment {
+            date: day,
+            account_id: Some(account_id),
+            counterparty: Some("Вася".into()),
+            direction: Some(RepaymentDirection::Received),
+            amount: Some(1_000),
+        })?;
+        let counterparty_id = ledger.counterparties()[0].id();
+        ledger.delete_counterparty(counterparty_id)?;
+
+        let repayment_id = ledger
+            .operations()
+            .iter()
+            .find(|entry| entry.kind() == OperationKind::Repayment)
+            .map(|entry| entry.id())
+            .unwrap_or_else(|| panic!("repayment"));
+        let mut form = match ledger.operation_form(repayment_id)? {
+            OperationForm::Repayment(form) => form,
+            _ => panic!("repayment"),
+        };
+        form.date = date(2026, 11, 21)?;
+        ledger.update_operation(repayment_id, OperationForm::Repayment(form))?;
+
+        assert!(ledger.counterparties().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn replacing_lend_that_backs_repayments_does_not_report_negative_remaining()
+    -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let account_id = rub_account(&mut ledger, 20_000)?;
+        let day = date(2026, 11, 20)?;
+        ledger.add_lend(NewLend {
+            date: day,
+            account_id: Some(account_id),
+            counterparty: Some("Петя".into()),
+            amount: Some(10_000),
+        })?;
+        ledger.add_repayment(NewRepayment {
+            date: day,
+            account_id: Some(account_id),
+            counterparty: Some("Петя".into()),
+            direction: Some(RepaymentDirection::Received),
+            amount: Some(8_000),
+        })?;
+        let lend_id = ledger.operations()[0].id();
+        let mut form = match ledger
+            .operation_form(lend_id)?
+            .switch_kind(OperationKind::Repayment)
+        {
+            OperationForm::Repayment(form) => form,
+            _ => panic!("repayment"),
+        };
+        form.direction = Some(RepaymentDirection::Received);
+        let err = ledger.update_operation(lend_id, OperationForm::Repayment(form));
+
+        assert_eq!(err, Err(DomainError::SubsequentRepaymentsDoNotMatch));
+        assert_eq!(ledger.lends()[0].amount(), 10_000);
+        assert_eq!(ledger.repayments()[0].amount(), 8_000);
         Ok(())
     }
 }

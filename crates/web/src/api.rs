@@ -134,8 +134,18 @@ impl AppApi {
             api.needs_confirm.set(false);
             if let Some(pending) = take_pending(api.pending) {
                 api.retry(pending);
+                return;
+            }
+            if api.place.get_untracked() == Place::Main {
+                api.on_return();
             }
         });
+    }
+
+    pub(crate) fn abandon(&self) {
+        self.needs_confirm.set(false);
+        self.pending.set(None);
+        self.mode.set(Mode::Feed);
     }
 
     pub(crate) fn watch_visibility(&self) {
@@ -167,8 +177,12 @@ impl AppApi {
             let place = session.place();
             let ledger = session.ledger().cloned();
             drop(session);
-            if result.is_ok() {
-                api.publish(place, ledger);
+            match result {
+                Ok(_) => api.publish(place, ledger),
+                Err(SessionError::Auth(AuthError::NeedsConfirmation)) => {
+                    api.needs_confirm.set(true);
+                }
+                Err(_) => {}
             }
         });
     }
@@ -186,6 +200,9 @@ impl AppApi {
             draft: draft.clone(),
             message,
         };
+        let Some(pending) = self.hold(pending) else {
+            return;
+        };
         let api = self.clone();
         let on_ok = self.clone();
         self.edit(
@@ -200,6 +217,9 @@ impl AppApi {
 
     pub(crate) fn delete_operation(&self, id: OperationId, message: RwSignal<Option<String>>) {
         let pending = Pending::Delete { id, message };
+        let Some(pending) = self.hold(pending) else {
+            return;
+        };
         let api = self.clone();
         let on_ok = self.clone();
         self.edit(
@@ -219,6 +239,9 @@ impl AppApi {
         let currency = input.currency.clone();
         let opening = input.opening;
         let pending = Pending::Account(input.clone());
+        let Some(pending) = self.hold(pending) else {
+            return;
+        };
         let api = self.clone();
         self.edit(
             move |ledger| store_account(&created_edit, ledger, name, currency, opening),
@@ -236,11 +259,13 @@ impl AppApi {
             let mut session = api.session.lock().await;
             let result = session.change(edit).await;
             let place = session.place();
-            let ledger = session.ledger().cloned();
+            let ledger = result.as_ref().ok().and_then(|_| session.ledger().cloned());
             drop(session);
-            api.place.set(place);
-            if let Some(ledger) = ledger {
-                api.ledger.set(ledger);
+            if result.is_ok() {
+                api.place.set(place);
+                if let Some(ledger) = ledger {
+                    api.ledger.set(ledger);
+                }
             }
             done(result);
         });
@@ -256,6 +281,7 @@ impl AppApi {
         match result {
             Ok(_) => {
                 self.needs_confirm.set(false);
+                self.pending.set(None);
                 on_ok();
             }
             Err(SessionError::Auth(AuthError::NeedsConfirmation)) => {
@@ -280,6 +306,7 @@ impl AppApi {
         match result {
             Ok(_) => {
                 self.needs_confirm.set(false);
+                self.pending.set(None);
                 place_account(&created, kind, &slots);
                 slots.name.set(String::new());
                 note.set(String::new());
@@ -291,6 +318,14 @@ impl AppApi {
             Err(SessionError::Domain(error)) => note.set(error_text(&error)),
             Err(_) => note.set("Не удалось сохранить".to_owned()),
         }
+    }
+
+    fn hold(&self, pending: Pending) -> Option<Pending> {
+        if !self.needs_confirm.get_untracked() {
+            return Some(pending);
+        }
+        self.pending.set(Some(pending));
+        None
     }
 
     fn retry(&self, pending: Pending) {
@@ -327,7 +362,9 @@ async fn confirm_session(api: &AppApi) -> bool {
     let place = session.place();
     let ledger = session.ledger().cloned();
     drop(session);
-    api.publish(place, ledger);
+    if result.is_ok() {
+        api.publish(place, ledger);
+    }
     result.is_ok()
 }
 

@@ -7,7 +7,6 @@ use crate::draft::{
     Draft, load_editor, needs_credited_amount, parse_account, parse_amount, parse_category,
     parse_direction, parse_name,
 };
-use crate::mode::Mode;
 use crate::text::{error_text, kind_from_name, kind_name, parse_date};
 
 #[derive(Clone, Copy)]
@@ -30,7 +29,6 @@ pub(crate) fn Editor(
     initial_kind: OperationKind,
 ) -> impl IntoView {
     let ledger = api.ledger();
-    let mode = api.mode();
     let loaded = ledger.with_untracked(|ledger| load_editor(ledger, editing, initial_kind));
     let kind = RwSignal::new(loaded.kind);
     let fields = fields_from(&loaded);
@@ -42,6 +40,7 @@ pub(crate) fn Editor(
     };
     let submit = api.clone();
     let maker = api.clone();
+    let back = api.clone();
     view! {
         <form on:submit=move |event| {
             event.prevent_default();
@@ -54,7 +53,7 @@ pub(crate) fn Editor(
             <p class="error">{move || message.get().unwrap_or_default()}</p>
             <button type="submit">"Сохранить"</button>
             {delete_button(api, editing, message)}
-            <button type="button" on:click=move |_| mode.set(Mode::Feed)>"К списку"</button>
+            <button type="button" on:click=move |_| back.abandon()>"К списку"</button>
         </form>
     }
 }

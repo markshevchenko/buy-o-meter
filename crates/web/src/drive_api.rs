@@ -2,7 +2,7 @@ use std::fmt::{self, Debug, Formatter};
 
 use serde::Deserialize;
 
-use domain::{Drive, DriveError, DriveFile, FileWrite, Revision};
+use domain::{DATA_FILES, Drive, DriveError, DriveFile, FileWrite, Revision};
 
 use crate::http;
 use crate::token::Tokens;
@@ -31,11 +31,14 @@ impl Drive for GoogleDrive {
     async fn load(&self) -> Result<Vec<DriveFile>, DriveError> {
         let token = self.tokens.current().ok_or(DriveError::Unavailable)?;
         let remote = list_files(&token).await?;
-        let mut files = Vec::new();
-        for file in remote {
-            files.push(download(&token, &file).await?);
+        let chosen = data_files(&remote);
+        if chosen.is_empty() {
+            return Ok(Vec::new());
         }
-        Ok(files)
+        if chosen.len() != DATA_FILES.len() {
+            return Err(DriveError::Unavailable);
+        }
+        download_all(&token, &chosen).await
     }
 
     async fn write(&mut self, files: Vec<FileWrite>) -> Result<(), DriveError> {
@@ -44,10 +47,7 @@ impl Drive for GoogleDrive {
         if files.iter().any(|file| conflicts(file, &remote)) {
             return Err(DriveError::Conflict);
         }
-        for file in files {
-            write_one(&token, &file, &remote).await?;
-        }
-        Ok(())
+        commit(&token, &files, &remote).await
     }
 }
 
@@ -114,6 +114,75 @@ fn revision(version: &VersionField) -> Result<Revision, DriveError> {
         .map_err(|_| DriveError::Unavailable)
 }
 
+async fn download_all(token: &str, files: &[RemoteFile]) -> Result<Vec<DriveFile>, DriveError> {
+    let mut loaded = Vec::new();
+    for file in files {
+        loaded.push(download(token, file).await?);
+    }
+    Ok(loaded)
+}
+
+fn data_files(remote: &[RemoteFile]) -> Vec<RemoteFile> {
+    remote
+        .iter()
+        .filter(|file| DATA_FILES.contains(&file.name.as_str()))
+        .cloned()
+        .collect()
+}
+
+struct Backup {
+    id: String,
+    previous: Option<Vec<u8>>,
+}
+
+async fn commit(token: &str, files: &[FileWrite], remote: &[RemoteFile]) -> Result<(), DriveError> {
+    let mut done = Vec::new();
+    for file in files {
+        if let Err(error) = store_one(token, file, remote, &mut done).await {
+            undo(token, &done).await;
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+async fn store_one(
+    token: &str,
+    file: &FileWrite,
+    remote: &[RemoteFile],
+    done: &mut Vec<Backup>,
+) -> Result<(), DriveError> {
+    let existing = remote.iter().find(|item| item.name == file.name);
+    let previous = previous_bytes(token, existing).await?;
+    let id = write_one(token, file, existing).await?;
+    done.push(Backup { id, previous });
+    Ok(())
+}
+
+async fn previous_bytes(
+    token: &str,
+    existing: Option<&RemoteFile>,
+) -> Result<Option<Vec<u8>>, DriveError> {
+    let Some(current) = existing else {
+        return Ok(None);
+    };
+    let file = download(token, current).await?;
+    Ok(Some(file.bytes().to_vec()))
+}
+
+async fn undo(token: &str, done: &[Backup]) {
+    for backup in done.iter().rev() {
+        let _ = restore(token, backup).await;
+    }
+}
+
+async fn restore(token: &str, backup: &Backup) -> Result<(), DriveError> {
+    match &backup.previous {
+        Some(bytes) => patch(token, &backup.id, bytes).await,
+        None => delete(token, &backup.id).await,
+    }
+}
+
 async fn download(token: &str, file: &RemoteFile) -> Result<DriveFile, DriveError> {
     let url = format!(
         "https://www.googleapis.com/drive/v3/files/{}?alt=media",
@@ -123,28 +192,39 @@ async fn download(token: &str, file: &RemoteFile) -> Result<DriveFile, DriveErro
     Ok(DriveFile::new(file.name.clone(), file.revision, bytes))
 }
 
-async fn write_one(token: &str, file: &FileWrite, remote: &[RemoteFile]) -> Result<(), DriveError> {
-    match remote.iter().find(|item| item.name == file.name) {
-        Some(current) => update(token, current, &file.bytes).await,
+async fn write_one(
+    token: &str,
+    file: &FileWrite,
+    existing: Option<&RemoteFile>,
+) -> Result<String, DriveError> {
+    match existing {
+        Some(current) => {
+            patch(token, &current.id, &file.bytes).await?;
+            Ok(current.id.clone())
+        }
         None => create(token, &file.name, &file.bytes).await,
     }
 }
 
-async fn create(token: &str, name: &str, bytes: &[u8]) -> Result<(), DriveError> {
-    let url = format!("{UPLOAD_URL}?uploadType=multipart");
-    http::send(
+async fn create(token: &str, name: &str, bytes: &[u8]) -> Result<String, DriveError> {
+    let url = format!("{UPLOAD_URL}?uploadType=multipart&fields=id,version");
+    let body = http::send(
         "POST",
         &url,
         token,
         Some("multipart/related; boundary=buyometer"),
         Some(multipart(name, bytes)),
     )
-    .await
-    .map(|_| ())
+    .await?;
+    let uploaded: Uploaded = serde_json::from_slice(&body).map_err(|_| DriveError::Unavailable)?;
+    Ok(uploaded.id)
 }
 
-async fn update(token: &str, file: &RemoteFile, bytes: &[u8]) -> Result<(), DriveError> {
-    let url = format!("{UPLOAD_URL}/{}?uploadType=media", encode(&file.id));
+async fn patch(token: &str, id: &str, bytes: &[u8]) -> Result<(), DriveError> {
+    let url = format!(
+        "{UPLOAD_URL}/{}?uploadType=media&fields=id,version",
+        encode(id)
+    );
     http::send(
         "PATCH",
         &url,
@@ -154,6 +234,18 @@ async fn update(token: &str, file: &RemoteFile, bytes: &[u8]) -> Result<(), Driv
     )
     .await
     .map(|_| ())
+}
+
+async fn delete(token: &str, id: &str) -> Result<(), DriveError> {
+    let url = format!("https://www.googleapis.com/drive/v3/files/{}", encode(id));
+    http::send("DELETE", &url, token, None, None)
+        .await
+        .map(|_| ())
+}
+
+#[derive(Deserialize)]
+struct Uploaded {
+    id: String,
 }
 
 fn conflicts(file: &FileWrite, remote: &[RemoteFile]) -> bool {

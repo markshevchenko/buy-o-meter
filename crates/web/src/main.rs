@@ -106,7 +106,7 @@ fn confirm_banner(api: AppApi) -> impl IntoView {
             let api = shown.clone();
             view! {
                 <section class="banner">
-                    <p>"Подтвердите вход через Google, чтобы сохранить запись."</p>
+                    <p>"Подтвердите вход через Google."</p>
                     <button type="button" on:click=move |_| api.confirm()>"Подтвердить"</button>
                 </section>
             }

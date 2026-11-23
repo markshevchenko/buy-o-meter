@@ -150,6 +150,7 @@ impl<I: Identity, D: Drive> Session<I, D> {
         if self.place != Place::Main {
             return Ok(self.place);
         }
+        self.ready_for_edit().await?;
         self.refresh_if_newer().await?;
         Ok(self.place)
     }
@@ -160,8 +161,10 @@ impl<I: Identity, D: Drive> Session<I, D> {
     ) -> Result<Place, SessionError> {
         self.ready_for_edit().await?;
         self.refresh_if_newer().await?;
-        self.apply(edit)?;
-        self.save().await?;
+        let mut edited = self.editable()?;
+        edit(&mut edited).map_err(SessionError::Domain)?;
+        self.save_ledger(&edited).await?;
+        self.ledger = Some(edited);
         Ok(self.place)
     }
 
@@ -222,21 +225,32 @@ impl<I: Identity, D: Drive> Session<I, D> {
     }
 
     async fn save(&mut self) -> Result<(), SessionError> {
-        let writes = self.pending_writes()?;
+        let ledger = self.editable()?;
+        self.save_ledger(&ledger).await
+    }
+
+    async fn save_ledger(&mut self, ledger: &Ledger) -> Result<(), SessionError> {
+        let writes = files::writes(ledger, &self.seen)?;
         self.drive
             .write(writes)
             .await
             .map_err(SessionError::Drive)?;
-        files::advance(&mut self.seen);
+        self.remember_versions().await;
         Ok(())
     }
 
-    fn pending_writes(&self) -> Result<Vec<FileWrite>, SessionError> {
-        let ledger = self
-            .ledger
-            .as_ref()
-            .ok_or(SessionError::Drive(DriveError::Unavailable))?;
-        files::writes(ledger, &self.seen)
+    /// Поле `version` у Drive не равно нашему шагу. Если перечитать не вышло, сдвигаем локально.
+    async fn remember_versions(&mut self) {
+        match self.drive.load().await {
+            Ok(loaded) => self.seen = files::seen_from(&loaded),
+            Err(_) => files::advance(&mut self.seen),
+        }
+    }
+
+    fn editable(&self) -> Result<Ledger, SessionError> {
+        self.ledger
+            .clone()
+            .ok_or(SessionError::Drive(DriveError::Unavailable))
     }
 
     async fn ready_for_edit(&mut self) -> Result<(), SessionError> {
@@ -253,24 +267,13 @@ impl<I: Identity, D: Drive> Session<I, D> {
         }
         self.install(&loaded)
     }
-
-    fn apply(
-        &mut self,
-        edit: impl FnOnce(&mut Ledger) -> Result<(), DomainError>,
-    ) -> Result<(), SessionError> {
-        let ledger = self
-            .ledger
-            .as_mut()
-            .ok_or(SessionError::Drive(DriveError::Unavailable))?;
-        edit(ledger).map_err(SessionError::Domain)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        APPDATA_SCOPE, AuthError, MemoryDrive, MemoryIdentity, Place, SIGN_IN_REQUIRED, Session,
-        SessionError,
+        APPDATA_SCOPE, AuthError, Drive, DriveError, DriveFile, FileWrite, MemoryDrive,
+        MemoryIdentity, Place, SIGN_IN_REQUIRED, Session, SessionError,
     };
     use pollster::block_on;
 
@@ -388,5 +391,74 @@ mod tests {
         let place = block_on(session.confirm()).expect("подтверждение");
         assert_eq!(place, Place::Main);
         assert_eq!(identity.sign_in_count(), sign_ins);
+    }
+
+    #[test]
+    fn failed_write_drops_the_edit() {
+        use crate::account::CreateAccount;
+        use crate::currency::Currency;
+
+        let memory = MemoryDrive::new();
+        let drive = LimitedDrive {
+            inner: memory.clone(),
+            remaining: 1,
+        };
+        let mut session = Session::new(MemoryIdentity::new(), drive);
+        block_on(session.open());
+        block_on(session.sign_in()).expect("вход");
+        let error = block_on(session.change(|ledger| {
+            ledger.create_account(CreateAccount {
+                name: "Наличные".into(),
+                currency: Currency::new("RUB"),
+                opening_balance: 0,
+            })?;
+            Ok(())
+        }))
+        .expect_err("запись");
+        assert_eq!(error, SessionError::Drive(DriveError::Unavailable));
+        assert!(session.ledger().expect("журнал").accounts().is_empty());
+
+        let mut other = Session::new(MemoryIdentity::new(), memory);
+        block_on(other.open());
+        block_on(other.sign_in()).expect("чтение");
+        assert!(other.ledger().expect("журнал").accounts().is_empty());
+    }
+
+    #[test]
+    fn expired_return_stays_on_main() {
+        let identity = MemoryIdentity::new();
+        let mut session = Session::new(identity.clone(), MemoryDrive::new());
+        block_on(session.open());
+        block_on(session.sign_in()).expect("вход");
+        let sign_ins = identity.sign_in_count();
+        identity.expire_access();
+        let error = block_on(session.on_return()).expect_err("нужно подтверждение");
+        assert_eq!(error, SessionError::Auth(AuthError::NeedsConfirmation));
+        assert_eq!(session.place(), Place::Main);
+        assert!(session.ledger().is_some());
+        assert_eq!(identity.sign_in_count(), sign_ins);
+        block_on(session.confirm()).expect("подтверждение");
+        assert_eq!(session.place(), Place::Main);
+        assert!(session.ledger().is_some());
+        assert_eq!(identity.sign_in_count(), sign_ins);
+    }
+
+    struct LimitedDrive {
+        inner: MemoryDrive,
+        remaining: u32,
+    }
+
+    impl Drive for LimitedDrive {
+        async fn load(&self) -> Result<Vec<DriveFile>, DriveError> {
+            self.inner.load().await
+        }
+
+        async fn write(&mut self, files: Vec<FileWrite>) -> Result<(), DriveError> {
+            if self.remaining == 0 {
+                return Err(DriveError::Unavailable);
+            }
+            self.remaining -= 1;
+            self.inner.write(files).await
+        }
     }
 }

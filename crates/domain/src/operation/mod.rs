@@ -47,6 +47,21 @@ pub enum OperationKind {
     Repayment,
 }
 
+impl OperationKind {
+    #[must_use]
+    #[rustfmt::skip]
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Expense,
+            Self::Income,
+            Self::Transfer,
+            Self::Lend,
+            Self::Borrow,
+            Self::Repayment,
+        ]
+    }
+}
+
 /// Номер внутри дня — место среди записей этой даты, с единицы.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OperationEntry {

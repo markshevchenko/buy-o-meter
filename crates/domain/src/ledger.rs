@@ -12,6 +12,7 @@ use crate::operation::{
     NewTransfer, OperationDraft, OperationId, OperationKind, Record, Repayment, RepaymentDirection,
     Transfer, TransferAmountFields,
 };
+use crate::quick_access::QuickAccess;
 use crate::starter::{EXPENSE_TREE, INCOME_TREE, StarterGroup};
 
 mod edit;
@@ -590,6 +591,13 @@ impl Ledger {
     #[must_use]
     pub fn my_debts(&self) -> Vec<Debt> {
         self.open_debts(&self.borrows, borrow_parts, RepaymentDirection::Given)
+    }
+
+    /// Все счета в порядке создания, остаток каждого — как `balance`, в валюте счёта.
+    /// Долги — как `my_debts` и `debts_to_me`.
+    #[must_use]
+    pub fn quick_access(&self) -> QuickAccess {
+        todo!()
     }
 
     fn debt_remaining(

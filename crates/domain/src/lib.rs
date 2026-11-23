@@ -6,6 +6,7 @@ mod currency;
 mod error;
 mod ledger;
 mod operation;
+mod quick_access;
 mod starter;
 
 pub use account::{Account, AccountId, CreateAccount, UpdateAccount};
@@ -22,3 +23,4 @@ pub use operation::{
     NewTransfer, OperationDraft, OperationEntry, OperationForm, OperationId, OperationKind, Record,
     Repayment, RepaymentDirection, Transfer, TransferAmountFields,
 };
+pub use quick_access::{AccountBalance, QuickAccess};

@@ -278,21 +278,8 @@ impl Ledger {
         kind: ReportKind,
         period: ReportPeriod,
     ) -> Vec<(CategoryId, Vec<CurrencyAmount>)> {
-        match kind {
-            ReportKind::Expense => self.posted_totals(period, &self.expenses, expense_posting),
-            ReportKind::Income => self.posted_totals(period, &self.incomes, income_posting),
-        }
-    }
-
-    fn posted_totals<T>(
-        &self,
-        period: ReportPeriod,
-        items: &[T],
-        posting_of: impl Fn(&T) -> Posting,
-    ) -> Vec<(CategoryId, Vec<CurrencyAmount>)> {
         let mut totals = Vec::new();
-        for item in items {
-            let posting = posting_of(item);
+        for posting in self.kind_postings(kind) {
             if !period.contains(posting.date) {
                 continue;
             }
@@ -302,6 +289,29 @@ impl Ledger {
             add_total(&mut totals, posting.category_id, currency, posting.amount);
         }
         totals
+    }
+
+    fn kind_postings(&self, kind: ReportKind) -> Vec<Posting> {
+        match kind {
+            ReportKind::Expense => self.expenses.iter().map(expense_posting).collect(),
+            ReportKind::Income => self.incomes.iter().map(income_posting).collect(),
+        }
+    }
+
+    fn category_postings(&self, kind: ReportKind, category_id: CategoryId) -> Vec<MoneyOnDate> {
+        self.kind_postings(kind)
+            .into_iter()
+            .filter(|posting| posting.category_id == category_id)
+            .filter_map(|posting| self.money_on(posting))
+            .collect()
+    }
+
+    fn money_on(&self, posting: Posting) -> Option<MoneyOnDate> {
+        Some(MoneyOnDate {
+            date: posting.date,
+            currency: self.currency_of(posting.account_id)?,
+            amount: posting.amount,
+        })
     }
 
     fn currency_of(&self, account_id: AccountId) -> Option<Currency> {
@@ -315,10 +325,9 @@ impl Ledger {
         category_id: CategoryId,
         today: SystemTime,
     ) -> Result<CategoryMonths, DomainError> {
-        let _ = (kind, today);
         self.find_category(category_id)
             .ok_or(DomainError::CategoryNotFound)?;
-        Ok(CategoryMonths { months: Vec::new() })
+        month_series(&self.category_postings(kind, category_id), today)
     }
 }
 
@@ -326,6 +335,12 @@ struct Posting {
     date: SystemTime,
     account_id: AccountId,
     category_id: CategoryId,
+    amount: i64,
+}
+
+struct MoneyOnDate {
+    date: SystemTime,
+    currency: Currency,
     amount: i64,
 }
 
@@ -365,6 +380,58 @@ fn month_index(month: time::Month) -> i32 {
     i32::from(u8::from(month))
 }
 
+fn month_of(time: SystemTime) -> Result<(i32, i32), DomainError> {
+    let date = calendar_date(time)?;
+    Ok((date.year(), month_index(date.month())))
+}
+
+fn month_series(postings: &[MoneyOnDate], today: SystemTime) -> Result<CategoryMonths, DomainError> {
+    let today = month_of(today)?;
+    let Some(mut cursor) = first_month(postings)? else {
+        return Ok(CategoryMonths { months: Vec::new() });
+    };
+    let mut months = Vec::new();
+    while cursor <= today {
+        months.push(MonthTotal {
+            year: cursor.0,
+            month: cursor.1,
+            amounts: amounts_in_month(postings, cursor)?,
+        });
+        cursor = shift_month(cursor.0, cursor.1, 1)?;
+    }
+    Ok(CategoryMonths { months })
+}
+
+fn first_month(postings: &[MoneyOnDate]) -> Result<Option<(i32, i32)>, DomainError> {
+    let mut first = None;
+    for posting in postings {
+        let month = month_of(posting.date)?;
+        first = earlier(first, month);
+    }
+    Ok(first)
+}
+
+fn earlier(first: Option<(i32, i32)>, month: (i32, i32)) -> Option<(i32, i32)> {
+    match first {
+        Some(current) if current <= month => Some(current),
+        _ => Some(month),
+    }
+}
+
+fn amounts_in_month(
+    postings: &[MoneyOnDate],
+    month: (i32, i32),
+) -> Result<Vec<CurrencyAmount>, DomainError> {
+    let mut amounts = Vec::new();
+    for posting in postings {
+        if month_of(posting.date)? == month {
+            add_amount(&mut amounts, posting.currency.clone(), posting.amount);
+        }
+    }
+    sort_amounts(&mut amounts);
+    Ok(amounts)
+}
+
 fn shifted_month(start: SystemTime, steps: i32) -> Result<SystemTime, DomainError> {
     let start = calendar_date(start)?;
     let (year, month) = shift_month(start.year(), month_index(start.month()), steps)?;
@@ -400,8 +467,12 @@ fn rolled_amounts(
             add_amount(&mut amounts, item.currency().clone(), item.amount());
         }
     }
-    amounts.sort_by(|left, right| left.currency().as_str().cmp(right.currency().as_str()));
+    sort_amounts(&mut amounts);
     amounts
+}
+
+fn sort_amounts(amounts: &mut [CurrencyAmount]) {
+    amounts.sort_by(|left, right| left.currency().as_str().cmp(right.currency().as_str()));
 }
 
 fn add_total(
@@ -608,6 +679,54 @@ mod tests {
         let months = ledger.category_months(ReportKind::Expense, products, date(2026, 11, 22)?)?;
         assert!(months.months().is_empty());
         Ok(())
+    }
+
+    #[test]
+    fn category_months_fills_gaps_through_today() -> Result<(), DomainError> {
+        let mut ledger = Ledger::new();
+        let cash = account(&mut ledger)?;
+        let products = category(&mut ledger, "Продукты", None)?;
+        let other = category(&mut ledger, "Транспорт", None)?;
+        let today = date(2026, 11, 22)?;
+        spend(&mut ledger, cash, products, date(2025, 3, 10)?, 400)?;
+        spend(&mut ledger, cash, products, date(2025, 3, 20)?, 600)?;
+        spend(&mut ledger, cash, other, date(2025, 4, 1)?, 9_000)?;
+        spend(&mut ledger, cash, products, date(2025, 5, 1)?, 2_000)?;
+        spend(&mut ledger, cash, products, date(2026, 11, 5)?, 500)?;
+        ledger.add_income(NewIncome {
+            date: date(2025, 3, 10)?,
+            account_id: Some(cash),
+            category_id: Some(products),
+            amount: Some(50_000),
+            comment: String::new(),
+        })?;
+
+        let months = ledger.category_months(ReportKind::Expense, products, today)?;
+        let keys: Vec<_> = months
+            .months()
+            .iter()
+            .map(|month| (month.year(), month.month()))
+            .collect();
+        assert_eq!(keys.first(), Some(&(2025, 3)));
+        assert_eq!(keys.last(), Some(&(2026, 11)));
+        assert!(keys.windows(2).all(|pair| pair[0] < pair[1]));
+        assert_eq!(month_amount(&months, 2025, 3), 1_000);
+        assert!(month_row(&months, 2025, 4).amounts().is_empty());
+        assert_eq!(month_amount(&months, 2025, 5), 2_000);
+        assert_eq!(month_amount(&months, 2026, 11), 500);
+        Ok(())
+    }
+
+    fn month_row(months: &super::CategoryMonths, year: i32, month: i32) -> &super::MonthTotal {
+        months
+            .months()
+            .iter()
+            .find(|entry| entry.year() == year && entry.month() == month)
+            .expect("month")
+    }
+
+    fn month_amount(months: &super::CategoryMonths, year: i32, month: i32) -> i64 {
+        month_row(months, year, month).amount(&Currency::new("RUB"))
     }
 
     fn spent(ledger: &Ledger, period: ReportPeriod) -> i64 {

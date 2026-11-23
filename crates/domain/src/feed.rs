@@ -112,6 +112,10 @@ pub struct MainScreen {
 }
 
 impl MainScreen {
+    pub(crate) fn new(days: Vec<FeedDay>) -> Self {
+        Self { days }
+    }
+
     #[must_use]
     pub fn days(&self) -> &[FeedDay] {
         &self.days

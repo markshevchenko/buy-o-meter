@@ -11,6 +11,7 @@ mod account;
 mod category;
 mod debt;
 mod edit;
+mod feed;
 mod operation;
 mod report;
 

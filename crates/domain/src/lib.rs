@@ -4,6 +4,7 @@ mod clock;
 mod counterparty;
 mod currency;
 mod error;
+mod feed;
 mod ledger;
 mod operation;
 mod quick_access;
@@ -17,6 +18,7 @@ pub use currency::Currency;
 pub use error::{
     DomainError, MissingDebtFields, MissingFields, MissingRepaymentFields, MissingTransferFields,
 };
+pub use feed::{FeedDay, FeedLine, FeedMoney, MainScreen};
 pub use ledger::{
     CategoryMonths, CategoryReport, CategoryReportNode, CurrencyAmount, Ledger, MonthTotal,
     PeriodUnit, ReportKind, ReportPeriod,

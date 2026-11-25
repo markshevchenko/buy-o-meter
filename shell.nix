@@ -4,5 +4,6 @@ pkgs.mkShell {
         rustup
         trunk
         gh
+        direnv
     ];
 }

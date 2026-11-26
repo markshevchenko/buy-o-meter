@@ -115,8 +115,8 @@ mod create_account {
                 <h2>"Новый счёт"</h2>
                 {labeled_field("Название", fields.name, "text", true)}
                 {currency_field(fields.currency, true)}
-                {labeled_field("Начальный остаток", fields.opening, "number", true)}
-                {labeled_field("Кредитный лимит", fields.credit_limit, "number", false)}
+                {labeled_field("Начальный остаток", fields.opening, "text", true)}
+                {labeled_field("Кредитный лимит", fields.credit_limit, "text", false)}
                 {note_field(fields.note)}
                 <p class="error">{move || message.get().unwrap_or_default()}</p>
                 <div class="actions">
@@ -141,7 +141,7 @@ mod create_account {
         let label_class = if required { "required" } else { "" };
         view! {
             <label class=label_class>
-                {label}
+                <span class="label-text">{label}</span>
                 <input
                     type=kind
                     prop:value=move || value.get()
@@ -154,7 +154,7 @@ mod create_account {
     fn note_field(value: RwSignal<String>) -> impl IntoView {
         view! {
             <label>
-                "Комментарий"
+                <span class="label-text">"Комментарий"</span>
                 <textarea
                     prop:value=move || value.get()
                     on:input=move |event| value.set(event_target_value(&event))
@@ -168,7 +168,7 @@ mod create_account {
         let label_class = if required { "required" } else { "" };
         view! {
             <label class=label_class>
-                "Валюта"
+                <span class="label-text">"Валюта"</span>
                 <select on:change=move |event| currency.set(event_target_value(&event))>
                     {CURRENCIES
                         .iter()
@@ -231,7 +231,8 @@ mod create_account {
         if text.is_empty() {
             return Some(0);
         }
-        text.parse().ok()
+        let amount: f64 = text.parse().ok()?;
+        Some((amount * 100.0).round() as i64)
     }
 
     fn parse_credit_limit(text: &str) -> Result<i64, &'static str> {
@@ -261,7 +262,7 @@ mod create_account {
 
         #[test]
         fn negative_opening_balance_is_allowed() {
-            let input = account_input("Карта", "RUB", "-500", "0", "").unwrap();
+            let input = account_input("Карта", "RUB", "-5.00", "0", "").unwrap();
             assert_eq!(input.opening_balance, -500);
         }
 
@@ -377,8 +378,8 @@ mod edit_account {
                 <h2>"Редактировать счёт"</h2>
                 {labeled_field("Название", fields.name, "text", true)}
                 {currency_field(fields.currency, true)}
-                {labeled_field("Начальный остаток", fields.opening, "number", true)}
-                {labeled_field("Кредитный лимит", fields.credit_limit, "number", false)}
+                {labeled_field("Начальный остаток", fields.opening, "text", true)}
+                {labeled_field("Кредитный лимит", fields.credit_limit, "text", false)}
                 {note_field(fields.note)}
                 <p class="error">{move || message.get().unwrap_or_default()}</p>
                 <div class="actions">
@@ -399,8 +400,8 @@ mod edit_account {
             Some(account) => (
                 account.name().to_owned(),
                 account.currency().as_str().to_owned(),
-                account.opening_balance().to_string(),
-                account.credit_limit().to_string(),
+                format_amount(account.opening_balance()),
+                format_amount(account.credit_limit()),
                 account.note().to_owned(),
             ),
             None => (
@@ -420,6 +421,19 @@ mod edit_account {
         }
     }
 
+    fn format_amount(kopecks: i64) -> String {
+        if kopecks == 0 {
+            return "0".to_owned();
+        }
+        let rubles = kopecks / 100;
+        let kopecks = (kopecks % 100).abs();
+        if kopecks == 0 {
+            format!("{rubles}")
+        } else {
+            format!("{rubles}.{kopecks:02}")
+        }
+    }
+
     fn labeled_field(
         label: &'static str,
         value: RwSignal<String>,
@@ -429,7 +443,7 @@ mod edit_account {
         let label_class = if required { "required" } else { "" };
         view! {
             <label class=label_class>
-                {label}
+                <span class="label-text">{label}</span>
                 <input
                     type=kind
                     prop:value=move || value.get()
@@ -442,7 +456,7 @@ mod edit_account {
     fn note_field(value: RwSignal<String>) -> impl IntoView {
         view! {
             <label>
-                "Комментарий"
+                <span class="label-text">"Комментарий"</span>
                 <textarea
                     prop:value=move || value.get()
                     on:input=move |event| value.set(event_target_value(&event))
@@ -457,7 +471,7 @@ mod edit_account {
         let label_class = if required { "required" } else { "" };
         view! {
             <label class=label_class>
-                "Валюта"
+                <span class="label-text">"Валюта"</span>
                 <select on:change=move |event| currency.set(event_target_value(&event))>
                     {if !current_in_list {
                         view! { <option value=current.clone() selected=true>{current.clone()}</option> }.into_any()
@@ -526,7 +540,8 @@ mod edit_account {
         if text.is_empty() {
             return Some(0);
         }
-        text.parse().ok()
+        let amount: f64 = text.parse().ok()?;
+        Some((amount * 100.0).round() as i64)
     }
 
     fn parse_credit_limit(text: &str) -> Result<i64, &'static str> {
@@ -556,7 +571,7 @@ mod edit_account {
 
         #[test]
         fn negative_opening_balance_is_allowed() {
-            let input = account_input("Карта", "RUB", "-500", "0", "").unwrap();
+            let input = account_input("Карта", "RUB", "-5.00", "0", "").unwrap();
             assert_eq!(input.opening_balance, Some(-500));
         }
 

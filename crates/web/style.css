@@ -264,6 +264,17 @@ select {
   margin-bottom: 0.75rem;
 }
 
+.modal label .label-text {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.modal .required .label-text::after {
+  content: "*";
+  color: var(--color-accent);
+}
+
 .modal input,
 .modal select {
   min-height: 2.75rem;
@@ -285,11 +296,6 @@ select {
   box-sizing: border-box;
   font: inherit;
   resize: vertical;
-}
-
-.modal .required::after {
-  content: " *";
-  color: var(--color-accent);
 }
 
 .modal .actions {

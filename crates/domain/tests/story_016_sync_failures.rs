@@ -56,22 +56,23 @@ impl Drive for FlakyDrive {
     }
 }
 
-fn signed_in_with_account(drive: FlakyDrive) -> Session<MemoryIdentity, FlakyDrive> {
+fn signed_in_with_account(
+    drive: FlakyDrive,
+) -> Result<Session<MemoryIdentity, FlakyDrive>, SessionError> {
     let mut session = Session::new(MemoryIdentity::new(), drive);
     pollster::block_on(session.open());
-    pollster::block_on(session.sign_in()).expect("вход");
+    pollster::block_on(session.sign_in())?;
     pollster::block_on(session.change(|ledger| {
         create_account(ledger, "Наличные", "RUB", 1_000)?;
         Ok(())
-    }))
-    .expect("счёт");
-    session
+    }))?;
+    Ok(session)
 }
 
 fn account_names(session: &Session<MemoryIdentity, FlakyDrive>) -> Vec<String> {
     session
         .ledger()
-        .expect("журнал")
+        .unwrap_or_else(|| panic!("журнал"))
         .accounts()
         .iter()
         .map(|account| account.name().to_owned())
@@ -80,9 +81,9 @@ fn account_names(session: &Session<MemoryIdentity, FlakyDrive>) -> Vec<String> {
 
 // 016 «Сбой обновления при возврате к приложению»
 #[test]
-fn failed_return_keeps_feed_and_reports_the_failure() {
+fn failed_return_keeps_feed_and_reports_the_failure() -> Result<(), SessionError> {
     let drive = FlakyDrive::new(MemoryDrive::new());
-    let mut session = signed_in_with_account(drive.clone());
+    let mut session = signed_in_with_account(drive.clone())?;
     assert!(session.sync_failure().is_none());
 
     drive.break_reads(DriveError::Unavailable);
@@ -95,11 +96,12 @@ fn failed_return_keeps_feed_and_reports_the_failure() {
     );
     assert_eq!(session.place(), Place::Main);
     assert_eq!(account_names(&session), vec!["Наличные".to_owned()]);
+    Ok(())
 }
 
 // 016 «Причина сбоя названа»
 #[test]
-fn reported_failure_carries_the_drive_reason() {
+fn reported_failure_carries_the_drive_reason() -> Result<(), SessionError> {
     #[rustfmt::skip]
     let reasons = [
         DriveError::Unavailable,
@@ -108,57 +110,59 @@ fn reported_failure_carries_the_drive_reason() {
 
     for reason in reasons {
         let drive = FlakyDrive::new(MemoryDrive::new());
-        let mut session = signed_in_with_account(drive.clone());
+        let mut session = signed_in_with_account(drive.clone())?;
 
         drive.break_reads(reason);
         pollster::block_on(session.on_return()).expect_err("обновление должно отказать");
 
         assert_eq!(session.sync_failure(), Some(&SessionError::Drive(reason)));
     }
+    Ok(())
 }
 
 // 016 «Сообщение уходит после успеха»
 #[test]
-fn successful_return_clears_the_failure() {
+fn successful_return_clears_the_failure() -> Result<(), SessionError> {
     let drive = FlakyDrive::new(MemoryDrive::new());
-    let mut session = signed_in_with_account(drive.clone());
+    let mut session = signed_in_with_account(drive.clone())?;
 
     drive.break_reads(DriveError::Unavailable);
     pollster::block_on(session.on_return()).expect_err("обновление должно отказать");
     assert!(session.sync_failure().is_some());
 
     drive.repair_reads();
-    pollster::block_on(session.on_return()).expect("обновление прошло");
+    pollster::block_on(session.on_return())?;
 
     assert!(session.sync_failure().is_none());
+    Ok(())
 }
 
 // 016 «Повторить попытку»
 #[test]
-fn retry_after_failure_reads_drive_again() {
+fn retry_after_failure_reads_drive_again() -> Result<(), SessionError> {
     let memory = MemoryDrive::new();
     let drive = FlakyDrive::new(memory.clone());
-    let mut session = signed_in_with_account(drive.clone());
+    let mut session = signed_in_with_account(drive.clone())?;
 
     let mut phone = Session::new(MemoryIdentity::new(), memory);
     pollster::block_on(phone.open());
-    pollster::block_on(phone.sign_in()).expect("вход с телефона");
+    pollster::block_on(phone.sign_in())?;
     pollster::block_on(phone.change(|ledger| {
         create_account(ledger, "Карта", "RUB", 0)?;
         Ok(())
-    }))
-    .expect("счёт с телефона");
+    }))?;
 
     drive.break_reads(DriveError::Unavailable);
     pollster::block_on(session.on_return()).expect_err("обновление должно отказать");
     let loads = drive.loads();
 
     drive.repair_reads();
-    pollster::block_on(session.on_return()).expect("повтор прошёл");
+    pollster::block_on(session.on_return())?;
 
     assert!(drive.loads() > loads, "повтор не обратился к Drive");
     assert!(session.sync_failure().is_none());
     let mut names = account_names(&session);
     names.sort();
     assert_eq!(names, vec!["Карта".to_owned(), "Наличные".to_owned()]);
+    Ok(())
 }

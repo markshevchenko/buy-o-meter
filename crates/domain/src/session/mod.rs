@@ -54,6 +54,7 @@ pub struct Session<I, D> {
     place: Place,
     ledger: Option<Ledger>,
     seen: files::Seen,
+    sync_failure: Option<SessionError>,
 }
 
 impl<I, D> Session<I, D> {
@@ -65,6 +66,7 @@ impl<I, D> Session<I, D> {
             place: Place::SignIn { message: None },
             ledger: None,
             seen: files::empty_seen(),
+            sync_failure: None,
         }
     }
 
@@ -93,7 +95,7 @@ impl<I: Identity, D: Drive> Session<I, D> {
     /// Пока сбой не снят, журнал на экране мог устареть.
     #[must_use]
     pub fn sync_failure(&self) -> Option<&SessionError> {
-        todo!("история 016")
+        self.sync_failure.as_ref()
     }
 
     pub fn open(&mut self) -> impl Future<Output = Place> {
@@ -156,9 +158,25 @@ impl<I: Identity, D: Drive> Session<I, D> {
         if self.place != Place::Main {
             return Ok(self.place);
         }
-        self.ready_for_edit().await?;
-        self.refresh_if_newer().await?;
+        if let Err(error) = self.refresh_now().await {
+            self.remember_failure(error.clone());
+            return Err(error);
+        }
+        self.sync_failure = None;
         Ok(self.place)
+    }
+
+    async fn refresh_now(&mut self) -> Result<(), SessionError> {
+        self.ready_for_edit().await?;
+        self.refresh_if_newer().await
+    }
+
+    /// У `NeedsConfirmation` свой экран подтверждения, устаревшими данными его не объяснить.
+    fn remember_failure(&mut self, error: SessionError) {
+        if error == SessionError::Auth(AuthError::NeedsConfirmation) {
+            return;
+        }
+        self.sync_failure = Some(error);
     }
 
     async fn change_ledger(
@@ -171,6 +189,7 @@ impl<I: Identity, D: Drive> Session<I, D> {
         edit(&mut edited).map_err(SessionError::Domain)?;
         self.save_ledger(&edited).await?;
         self.ledger = Some(edited);
+        self.sync_failure = None;
         Ok(self.place)
     }
 
@@ -200,6 +219,7 @@ impl<I: Identity, D: Drive> Session<I, D> {
     fn show_sign_in(&mut self, message: Option<&'static str>) {
         self.place = Place::SignIn { message };
         self.ledger = None;
+        self.sync_failure = None;
     }
 
     async fn enter_main(&mut self) -> Result<Place, SessionError> {

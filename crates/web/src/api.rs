@@ -67,10 +67,9 @@ enum Pending {
         message: RwSignal<Option<String>>,
     },
     NewAccount {
-        name: String,
-        currency: String,
-        opening: i64,
+        input: CreateAccount,
         message: RwSignal<Option<String>>,
+        show: RwSignal<bool>,
     },
     UpdateAccount {
         id: AccountId,
@@ -383,34 +382,22 @@ impl AppApi {
 
     pub(crate) fn add_account(
         &self,
-        name: String,
-        currency: String,
-        opening: i64,
+        input: CreateAccount,
         message: RwSignal<Option<String>>,
+        show: RwSignal<bool>,
     ) {
         let pending = Pending::NewAccount {
-            name: name.clone(),
-            currency: currency.clone(),
-            opening,
+            input: input.clone(),
             message,
+            show,
         };
         let Some(pending) = self.hold(pending) else {
             return;
         };
         let api = self.clone();
         self.edit(
-            move |ledger| {
-                ledger
-                    .create_account(CreateAccount {
-                        name,
-                        currency: Currency::new(currency),
-                        opening_balance: opening,
-                        credit_limit: 0,
-                        note: String::new(),
-                    })
-                    .map(|_| ())
-            },
-            move |result| api.settle(result, message, pending, || {}),
+            move |ledger| ledger.create_account(input).map(|_| ()),
+            move |result| api.settle(result, message, pending, move || show.set(false)),
         );
     }
 
@@ -540,11 +527,10 @@ impl AppApi {
                 message,
             } => self.delete_category(id, transfer_to, message),
             Pending::NewAccount {
-                name,
-                currency,
-                opening,
+                input,
                 message,
-            } => self.add_account(name, currency, opening, message),
+                show,
+            } => self.add_account(input, message, show),
             Pending::UpdateAccount { id, input, message } => {
                 self.update_account(id, input, message);
             }

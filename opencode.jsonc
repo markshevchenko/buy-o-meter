@@ -1,24 +1,24 @@
 {
   "$schema": "https://opencode.ai/config.json",
   // Текст ролей — в docs/agents/, его читают все инструменты; здесь только модели и права для opencode.
-  "model": "anthropic/claude-opus-5-5",
+  "model": "aitunnel/qwen3.7-plus",
   "agents": {
     "acceptance-tests": {
       "description": "Пишет приёмочные интеграционные тесты по критериям приёмки пользовательской истории до реализации. Шаг 3 цикла задачи из AGENTS.md.",
       "mode": "subagent",
-      "model": "anthropic/claude-sonnet-5-5",
+      "model": "aitunnel/glm-5.3-flash",
       "system": "{file:./docs/agents/acceptance-tests.md}"
     },
     "implementer": {
       "description": "Реализует историю по TDD, пока не пройдут приёмочные тесты и scripts/check.sh. Шаг 4 цикла задачи из AGENTS.md.",
       "mode": "subagent",
-      "model": "anthropic/claude-sonnet-5-5",
+      "model": "aitunnel/deepseek-v4.1-flash",
       "system": "{file:./docs/agents/implementer.md}"
     },
     "reviewer": {
       "description": "Ревью изменений ветки относительно main по правилам docs/REVIEW.md. Шаг 6 цикла задачи из AGENTS.md.",
       "mode": "subagent",
-      "model": "anthropic/claude-opus-5-5",
+      "model": "aitunnel/glm-5.3",
       "system": "{file:./docs/agents/reviewer.md}",
       "permissions": [
         { "action": "edit", "resource": "*", "effect": "deny" }

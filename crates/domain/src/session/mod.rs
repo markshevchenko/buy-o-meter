@@ -90,6 +90,12 @@ impl<I: Identity, D: Drive> Session<I, D> {
         self.ledger.as_ref()
     }
 
+    /// Пока сбой не снят, журнал на экране мог устареть.
+    #[must_use]
+    pub fn sync_failure(&self) -> Option<&SessionError> {
+        todo!("история 016")
+    }
+
     pub fn open(&mut self) -> impl Future<Output = Place> {
         self.open_place()
     }

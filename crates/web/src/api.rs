@@ -553,6 +553,9 @@ impl AppApi {
         self.place.set(place);
         if place == Place::Main {
             if let Some(ledger) = ledger {
+                if ledger.accounts().is_empty() {
+                    self.tab.set(Tab::Accounts);
+                }
                 self.ledger.set(ledger);
             }
             return;

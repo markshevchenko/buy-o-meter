@@ -8,17 +8,82 @@ pub(crate) fn accounts_page(api: AppApi) -> impl IntoView {
     let ledger = api.ledger();
     let editing = RwSignal::new(None::<AccountId>);
     let list = api.clone();
+    let show_create = RwSignal::new(false);
     view! {
-        <div class="tree">
-            {move || {
-                let accounts: Vec<Account> = ledger.with(|ledger| ledger.accounts().to_vec());
-                accounts
-                    .into_iter()
-                    .map(|account| account_row(list.clone(), editing, account))
-                    .collect_view()
-            }}
-        </div>
-        {add_form(api)}
+        {move || {
+            let accounts: Vec<Account> = ledger.with(|ledger| ledger.accounts().to_vec());
+            if accounts.is_empty() {
+                empty_accounts_view(api.clone(), show_create).into_any()
+            } else {
+                accounts_table_view(list.clone(), editing, api.clone(), show_create).into_any()
+            }
+        }}
+    }
+}
+
+fn empty_accounts_view(api: AppApi, show_create: RwSignal<bool>) -> impl IntoView {
+    view! {
+        <p class="invite">
+            "Для начала заведите ваши счета: один счёт для каждой наличной валюты, "
+            "которой вы пользуетесь, по одному счёту на каждую карту и на каждый открытый счёт в банке."
+        </p>
+        <button type="button" on:click=move |_| show_create.set(true)>
+            "Создать счёт"
+        </button>
+        {move || {
+            if show_create.get() {
+                create_account::dialog(api.clone(), show_create).into_any()
+            } else {
+                ().into_any()
+            }
+        }}
+    }
+}
+
+fn accounts_table_view(
+    api: AppApi,
+    editing: RwSignal<Option<AccountId>>,
+    list: AppApi,
+    show_create: RwSignal<bool>,
+) -> impl IntoView {
+    let ledger = api.ledger();
+    view! {
+        <table class="accounts">
+            <thead>
+                <tr>
+                    <th>"Название"</th>
+                    <th>"Остаток"</th>
+                </tr>
+            </thead>
+            <tbody>
+                {move || {
+                    let accounts: Vec<Account> = ledger.with(|ledger| ledger.accounts().to_vec());
+                    accounts
+                        .into_iter()
+                        .map(|account| account_row(list.clone(), editing, account))
+                        .collect_view()
+                }}
+            </tbody>
+        </table>
+        <button type="button" on:click=move |_| show_create.set(true)>
+            "Создать счёт"
+        </button>
+        {move || {
+            if show_create.get() {
+                create_account::dialog(api.clone(), show_create).into_any()
+            } else {
+                ().into_any()
+            }
+        }}
+    }
+}
+
+mod create_account {
+    use leptos::prelude::*;
+    use crate::api::AppApi;
+
+    pub(super) fn dialog(api: AppApi, show: RwSignal<bool>) -> impl IntoView {
+        view! { <dialog>"Модальное окно создания счёта (заглушка)"</dialog> }
     }
 }
 
@@ -32,12 +97,19 @@ fn account_row(
     let name = account.name().to_owned();
     let currency = account.currency().as_str().to_owned();
     view! {
-        <button type="button" class="line" on:click=move |_| toggle(editing, id)>
-            {move || {
-                let balance = ledger.with(|ledger| ledger.balance(id).unwrap_or(0));
-                format!("{name}, {currency}: {balance}")
-            }}
-        </button>
+        <tr>
+            <td>
+                <button type="button" class="line" on:click=move |_| toggle(editing, id)>
+                    {name.clone()}
+                </button>
+            </td>
+            <td>
+                {move || {
+                    let balance = ledger.with(|ledger| ledger.balance(id).unwrap_or(0));
+                    format!("{balance} {currency}")
+                }}
+            </td>
+        </tr>
         {move || {
             if editing.get() == Some(id) {
                 edit_panel(api.clone(), id).into_any()
@@ -132,72 +204,4 @@ fn save_account(
         },
         message,
     );
-}
-
-fn add_form(api: AppApi) -> impl IntoView {
-    let name = RwSignal::new(String::new());
-    let currency = RwSignal::new("RUB".to_owned());
-    let opening = RwSignal::new("0".to_owned());
-    let message = RwSignal::new(None::<String>);
-    view! {
-        <fieldset>
-            <legend>"Новый счёт"</legend>
-            <label>
-                "Название"
-                <input
-                    type="text"
-                    prop:value=move || name.get()
-                    on:input=move |event| name.set(event_target_value(&event))
-                />
-            </label>
-            <label>
-                "Валюта"
-                <input
-                    type="text"
-                    prop:value=move || currency.get()
-                    on:input=move |event| currency.set(event_target_value(&event))
-                />
-            </label>
-            <label>
-                "Начальный остаток"
-                <input
-                    type="number"
-                    prop:value=move || opening.get()
-                    on:input=move |event| opening.set(event_target_value(&event))
-                />
-            </label>
-            <button
-                type="button"
-                on:click=move |_| add_account(api.clone(), name, currency, opening, message)
-            >
-                "Создать счёт"
-            </button>
-            <p class="error">{move || message.get().unwrap_or_default()}</p>
-        </fieldset>
-    }
-}
-
-fn add_account(
-    api: AppApi,
-    name: RwSignal<String>,
-    currency: RwSignal<String>,
-    opening: RwSignal<String>,
-    message: RwSignal<Option<String>>,
-) {
-    let account_name = name.get().trim().to_owned();
-    if account_name.is_empty() {
-        message.set(Some("Укажите название счёта".to_owned()));
-        return;
-    }
-    let Ok(opening_balance) = opening.get().trim().parse::<i64>() else {
-        message.set(Some("Некорректный остаток".to_owned()));
-        return;
-    };
-    let currency_code = currency.get().trim().to_owned();
-    if currency_code.is_empty() {
-        message.set(Some("Укажите валюту".to_owned()));
-        return;
-    }
-    api.add_account(account_name, currency_code, opening_balance, message);
-    name.set(String::new());
 }

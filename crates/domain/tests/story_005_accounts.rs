@@ -48,7 +48,7 @@ fn account_has_no_type_field_type_is_reflected_in_name() -> Result<(), DomainErr
 
     let account = ledger.account(id)?;
     assert_eq!(account.name(), "Карта Сбер");
-    // CreateAccount / Account содержат только name, currency, opening_balance — без поля типа.
+    // Типа счёта отдельным полем нет — он отражается в названии.
     let _ = CreateAccount {
         name: "Вклад".into(),
         currency: Currency::new("RUB"),

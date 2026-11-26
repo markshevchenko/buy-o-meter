@@ -146,7 +146,7 @@ impl AppApi {
             let place = session.open().await;
             let ledger = session.ledger().cloned();
             drop(session);
-            api.publish(place, ledger);
+            api.publish(place, ledger, true);
         });
     }
 
@@ -158,7 +158,7 @@ impl AppApi {
             let place = session.place();
             let ledger = session.ledger().cloned();
             drop(session);
-            api.publish(place, ledger);
+            api.publish(place, ledger, true);
         });
     }
 
@@ -168,7 +168,7 @@ impl AppApi {
             let mut session = api.session.lock().await;
             let place = session.sign_out();
             drop(session);
-            api.publish(place, None);
+            api.publish(place, None, false);
         });
     }
 
@@ -230,7 +230,7 @@ impl AppApi {
             drop(session);
             api.sync_error.set(failure);
             match result {
-                Ok(_) => api.publish(place, ledger),
+                Ok(_) => api.publish(place, ledger, false),
                 Err(SessionError::Auth(AuthError::NeedsConfirmation)) => {
                     api.needs_confirm.set(true);
                 }
@@ -537,11 +537,11 @@ impl AppApi {
         }
     }
 
-    fn publish(&self, place: Place, ledger: Option<Ledger>) {
+    fn publish(&self, place: Place, ledger: Option<Ledger>, is_initial_load: bool) {
         self.place.set(place);
         if place == Place::Main {
             if let Some(ledger) = ledger {
-                if ledger.accounts().is_empty() {
+                if is_initial_load && ledger.accounts().is_empty() {
                     self.tab.set(Tab::Accounts);
                 }
                 self.ledger.set(ledger);
@@ -565,7 +565,7 @@ async fn confirm_session(api: &AppApi) -> Result<(), SessionError> {
     let ledger = session.ledger().cloned();
     drop(session);
     result?;
-    api.publish(place, ledger);
+    api.publish(place, ledger, true);
     Ok(())
 }
 

@@ -172,10 +172,10 @@ fn edits_persist_after_sign_out_and_sign_in_again() -> Result<(), SessionError> 
             account_id,
             UpdateAccount {
                 name: Some("Наличные".into()),
+                opening_balance: None,
                 currency: None,
                 credit_limit: None,
                 note: None,
-                opening_balance: None,
             },
         )?;
         Ok(())

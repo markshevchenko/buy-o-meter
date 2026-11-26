@@ -7,7 +7,6 @@ use crate::api::AppApi;
 pub(crate) fn accounts_page(api: AppApi) -> impl IntoView {
     let ledger = api.ledger();
     let editing = RwSignal::new(None::<AccountId>);
-    let list = api.clone();
     let show_create = RwSignal::new(false);
     view! {
         {move || {
@@ -15,7 +14,7 @@ pub(crate) fn accounts_page(api: AppApi) -> impl IntoView {
             if accounts.is_empty() {
                 empty_accounts_view(api.clone(), show_create).into_any()
             } else {
-                accounts_table_view(list.clone(), editing, api.clone(), show_create).into_any()
+                accounts_table_view(api.clone(), editing, show_create).into_any()
             }
         }}
     }
@@ -43,10 +42,10 @@ fn empty_accounts_view(api: AppApi, show_create: RwSignal<bool>) -> impl IntoVie
 fn accounts_table_view(
     api: AppApi,
     editing: RwSignal<Option<AccountId>>,
-    list: AppApi,
     show_create: RwSignal<bool>,
 ) -> impl IntoView {
     let ledger = api.ledger();
+    let api_for_rows = api.clone();
     view! {
         <table class="accounts">
             <thead>
@@ -60,7 +59,7 @@ fn accounts_table_view(
                     let accounts: Vec<Account> = ledger.with(|ledger| ledger.accounts().to_vec());
                     accounts
                         .into_iter()
-                        .map(|account| account_row(list.clone(), editing, account))
+                        .map(|account| account_row(api_for_rows.clone(), editing, account))
                         .collect_view()
                 }}
             </tbody>

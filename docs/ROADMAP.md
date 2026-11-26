@@ -24,6 +24,8 @@
 | 12 | [#14](https://github.com/markshevchenko/buy-o-meter/issues/14) | [014](stories/014-category-report.md) Отчёт по категориям | Сводки по уже готовой модели |
 | 13 | [#15](https://github.com/markshevchenko/buy-o-meter/issues/15) | [006](stories/006-main-screen.md) Главный экран | Сборка ленты и быстрого ввода в UI |
 | 14 | [#16](https://github.com/markshevchenko/buy-o-meter/issues/16) | [001](stories/001-google-sign-in.md) Вход через Google | OAuth, Drive, сессия — нужен браузер |
+| 15 | [#32](https://github.com/markshevchenko/buy-o-meter/issues/32) | [015](stories/015-navigation.md) Вкладки, шапка, категории, счета | Разделы уже есть в domain, в UI их не было |
+| 16 | — | [016](stories/016-sync-failures.md) Видимые сбои синхронизации | Нашли молчащий сбой Drive при первом настоящем входе |
 
 ## Как отмечать прогресс
 

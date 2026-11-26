@@ -1,0 +1,4 @@
+[serve]
+# Должен совпадать с authorized origins в настройках Google OAuth-клиента
+# (http://localhost:8088, http://127.0.0.1:8088).
+port = 8088

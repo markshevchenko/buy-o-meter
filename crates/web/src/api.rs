@@ -6,15 +6,16 @@ use leptos::task::spawn_local;
 use wasm_bindgen::JsCast;
 
 use domain::{
-    AccountId, AuthError, CreateAccount, Currency, DomainError, Ledger, OperationId, OperationKind,
-    Place, Session, SessionError,
+    AccountId, AuthError, CategoryId, CreateAccount, CreateCategory, Currency, DomainError, Ledger,
+    OperationId, OperationKind, Place, Session, SessionError, UpdateAccount, UpdateCategory,
 };
 
 use crate::draft::{Draft, apply};
 use crate::drive_api::GoogleDrive;
 use crate::google::GoogleIdentity;
 use crate::mode::Mode;
-use crate::text::error_text;
+use crate::tab::Tab;
+use crate::text::{error_text, session_error_text};
 use crate::token::Tokens;
 
 #[derive(Clone, Copy)]
@@ -46,6 +47,36 @@ enum Pending {
         message: RwSignal<Option<String>>,
     },
     Account(NewAccount),
+    CreateCategory {
+        input: CreateCategory,
+        message: RwSignal<Option<String>>,
+    },
+    UpdateCategory {
+        id: CategoryId,
+        input: UpdateCategory,
+        message: RwSignal<Option<String>>,
+    },
+    MoveCategory {
+        id: CategoryId,
+        new_parent_id: CategoryId,
+        message: RwSignal<Option<String>>,
+    },
+    DeleteCategory {
+        id: CategoryId,
+        transfer_to: Option<CategoryId>,
+        message: RwSignal<Option<String>>,
+    },
+    NewAccount {
+        name: String,
+        currency: String,
+        opening: i64,
+        message: RwSignal<Option<String>>,
+    },
+    UpdateAccount {
+        id: AccountId,
+        input: UpdateAccount,
+        message: RwSignal<Option<String>>,
+    },
 }
 
 #[derive(Clone)]
@@ -54,7 +85,9 @@ pub(crate) struct AppApi {
     place: RwSignal<Place>,
     ledger: RwSignal<Ledger>,
     mode: RwSignal<Mode>,
+    tab: RwSignal<Tab>,
     needs_confirm: RwSignal<bool>,
+    confirm_error: RwSignal<Option<String>>,
     pending: RwSignal<Option<Pending>>,
 }
 
@@ -70,7 +103,9 @@ impl AppApi {
             place: RwSignal::new(Place::SignIn { message: None }),
             ledger: RwSignal::new(Ledger::new()),
             mode: RwSignal::new(Mode::Feed),
+            tab: RwSignal::new(Tab::Operations),
             needs_confirm: RwSignal::new(false),
+            confirm_error: RwSignal::new(None),
             pending: RwSignal::new(None),
         }
     }
@@ -87,8 +122,16 @@ impl AppApi {
         self.mode
     }
 
+    pub(crate) fn tab(&self) -> RwSignal<Tab> {
+        self.tab
+    }
+
     pub(crate) fn needs_confirm(&self) -> RwSignal<bool> {
         self.needs_confirm
+    }
+
+    pub(crate) fn confirm_error(&self) -> RwSignal<Option<String>> {
+        self.confirm_error
     }
 
     pub(crate) fn open(&self) {
@@ -127,10 +170,11 @@ impl AppApi {
     pub(crate) fn confirm(&self) {
         let api = self.clone();
         spawn_local(async move {
-            let ready = confirm_session(&api).await;
-            if !ready {
+            if let Err(error) = confirm_session(&api).await {
+                api.confirm_error.set(Some(session_error_text(&error)));
                 return;
             }
+            api.confirm_error.set(None);
             api.needs_confirm.set(false);
             if let Some(pending) = take_pending(api.pending) {
                 api.retry(pending);
@@ -144,6 +188,7 @@ impl AppApi {
 
     pub(crate) fn abandon(&self) {
         self.needs_confirm.set(false);
+        self.confirm_error.set(None);
         self.pending.set(None);
         self.mode.set(Mode::Feed);
     }
@@ -249,6 +294,136 @@ impl AppApi {
         );
     }
 
+    pub(crate) fn create_category(&self, input: CreateCategory, message: RwSignal<Option<String>>) {
+        let pending = Pending::CreateCategory {
+            input: input.clone(),
+            message,
+        };
+        let Some(pending) = self.hold(pending) else {
+            return;
+        };
+        let api = self.clone();
+        self.edit(
+            move |ledger| ledger.create_category(input).map(|_| ()),
+            move |result| api.settle(result, message, pending, || {}),
+        );
+    }
+
+    pub(crate) fn update_category(
+        &self,
+        id: CategoryId,
+        input: UpdateCategory,
+        message: RwSignal<Option<String>>,
+    ) {
+        let pending = Pending::UpdateCategory {
+            id,
+            input: input.clone(),
+            message,
+        };
+        let Some(pending) = self.hold(pending) else {
+            return;
+        };
+        let api = self.clone();
+        self.edit(
+            move |ledger| ledger.update_category(id, input),
+            move |result| api.settle(result, message, pending, || {}),
+        );
+    }
+
+    pub(crate) fn move_category(
+        &self,
+        id: CategoryId,
+        new_parent_id: CategoryId,
+        message: RwSignal<Option<String>>,
+    ) {
+        let pending = Pending::MoveCategory {
+            id,
+            new_parent_id,
+            message,
+        };
+        let Some(pending) = self.hold(pending) else {
+            return;
+        };
+        let api = self.clone();
+        self.edit(
+            move |ledger| ledger.move_category(id, new_parent_id),
+            move |result| api.settle(result, message, pending, || {}),
+        );
+    }
+
+    pub(crate) fn delete_category(
+        &self,
+        id: CategoryId,
+        transfer_to: Option<CategoryId>,
+        message: RwSignal<Option<String>>,
+    ) {
+        let pending = Pending::DeleteCategory {
+            id,
+            transfer_to,
+            message,
+        };
+        let Some(pending) = self.hold(pending) else {
+            return;
+        };
+        let api = self.clone();
+        self.edit(
+            move |ledger| ledger.delete_category(id, transfer_to),
+            move |result| api.settle(result, message, pending, || {}),
+        );
+    }
+
+    pub(crate) fn add_account(
+        &self,
+        name: String,
+        currency: String,
+        opening: i64,
+        message: RwSignal<Option<String>>,
+    ) {
+        let pending = Pending::NewAccount {
+            name: name.clone(),
+            currency: currency.clone(),
+            opening,
+            message,
+        };
+        let Some(pending) = self.hold(pending) else {
+            return;
+        };
+        let api = self.clone();
+        self.edit(
+            move |ledger| {
+                ledger
+                    .create_account(CreateAccount {
+                        name,
+                        currency: Currency::new(currency),
+                        opening_balance: opening,
+                    })
+                    .map(|_| ())
+            },
+            move |result| api.settle(result, message, pending, || {}),
+        );
+    }
+
+    pub(crate) fn update_account(
+        &self,
+        id: AccountId,
+        input: UpdateAccount,
+        message: RwSignal<Option<String>>,
+    ) {
+        let pending = Pending::UpdateAccount {
+            id,
+            input: input.clone(),
+            message,
+        };
+        let Some(pending) = self.hold(pending) else {
+            return;
+        };
+        let api = self.clone();
+        self.edit(
+            move |ledger| ledger.update_account(id, input),
+            move |result| api.settle(result, message, pending, || {}),
+        );
+    }
+
     fn edit(
         &self,
         edit: impl FnOnce(&mut Ledger) -> Result<(), DomainError> + 'static,
@@ -338,6 +513,29 @@ impl AppApi {
             } => self.save_operation(editing, kind, draft, message),
             Pending::Delete { id, message } => self.delete_operation(id, message),
             Pending::Account(input) => self.create_account(input),
+            Pending::CreateCategory { input, message } => self.create_category(input, message),
+            Pending::UpdateCategory { id, input, message } => {
+                self.update_category(id, input, message);
+            }
+            Pending::MoveCategory {
+                id,
+                new_parent_id,
+                message,
+            } => self.move_category(id, new_parent_id, message),
+            Pending::DeleteCategory {
+                id,
+                transfer_to,
+                message,
+            } => self.delete_category(id, transfer_to, message),
+            Pending::NewAccount {
+                name,
+                currency,
+                opening,
+                message,
+            } => self.add_account(name, currency, opening, message),
+            Pending::UpdateAccount { id, input, message } => {
+                self.update_account(id, input, message);
+            }
         }
     }
 
@@ -351,21 +549,22 @@ impl AppApi {
         }
         self.ledger.set(Ledger::new());
         self.mode.set(Mode::Feed);
+        self.tab.set(Tab::Operations);
         self.needs_confirm.set(false);
+        self.confirm_error.set(None);
         self.pending.set(None);
     }
 }
 
-async fn confirm_session(api: &AppApi) -> bool {
+async fn confirm_session(api: &AppApi) -> Result<(), SessionError> {
     let mut session = api.session.lock().await;
     let result = session.confirm().await;
     let place = session.place();
     let ledger = session.ledger().cloned();
     drop(session);
-    if result.is_ok() {
-        api.publish(place, ledger);
-    }
-    result.is_ok()
+    result?;
+    api.publish(place, ledger);
+    Ok(())
 }
 
 fn store_account(

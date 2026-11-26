@@ -1,8 +1,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use domain::{
-    DomainError, FeedLine, FeedMoney, MissingDebtFields, MissingFields, MissingRepaymentFields,
-    MissingTransferFields, OperationKind, RepaymentDirection,
+    AuthError, DomainError, DriveError, FeedLine, FeedMoney, MissingDebtFields, MissingFields,
+    MissingRepaymentFields, MissingTransferFields, OperationKind, RepaymentDirection, SessionError,
 };
 
 pub(crate) fn kind_name(kind: OperationKind) -> &'static str {
@@ -112,7 +112,36 @@ pub(crate) fn error_text(error: &DomainError) -> String {
         DomainError::InvalidDate => "Некорректная дата".to_owned(),
         DomainError::OperationNotFound => "Операция не найдена".to_owned(),
         DomainError::SubsequentRepaymentsDoNotMatch => "Возвраты не сходятся с долгом".to_owned(),
+        DomainError::ApplicabilityRequired => "Укажите, где применима категория".to_owned(),
+        DomainError::CategoryTooDeep => "Нельзя создать подкатегорию у подкатегории".to_owned(),
+        DomainError::CategoryHasSubcategories => {
+            "Сначала удалите или перенесите подкатегории".to_owned()
+        }
+        DomainError::TransferTargetRequired => {
+            "Выберите категорию для переноса операций".to_owned()
+        }
+        DomainError::UnsuitableTransferTarget => {
+            "Эта категория не подходит для переноса".to_owned()
+        }
+        DomainError::CurrencyChangeNotAllowed => {
+            "Нельзя сменить валюту у счёта с операциями".to_owned()
+        }
         _ => "Не удалось сохранить".to_owned(),
+    }
+}
+
+pub(crate) fn session_error_text(error: &SessionError) -> String {
+    match error {
+        SessionError::Auth(AuthError::Cancelled) => "Вход отменён".to_owned(),
+        SessionError::Auth(AuthError::Denied) => "Google не дал доступ к Drive".to_owned(),
+        SessionError::Auth(AuthError::NeedsConfirmation) => "Подтвердите доступ ещё раз".to_owned(),
+        SessionError::Drive(DriveError::Unavailable) => {
+            "Google Drive недоступен. Проверьте связь и то, что Drive API включён в проекте Google Cloud".to_owned()
+        }
+        SessionError::Drive(DriveError::Conflict) => {
+            "Данные изменились на другом устройстве. Попробуйте ещё раз".to_owned()
+        }
+        SessionError::Domain(error) => error_text(error),
     }
 }
 

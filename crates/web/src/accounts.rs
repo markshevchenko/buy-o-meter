@@ -113,19 +113,21 @@ mod create_account {
         view! {
             <dialog class="modal" open=true>
                 <h2>"Новый счёт"</h2>
-                {labeled_field("Название", fields.name, "text")}
-                {currency_field(fields.currency)}
-                {labeled_field("Начальный остаток", fields.opening, "number")}
-                {labeled_field("Кредитный лимит", fields.credit_limit, "number")}
-                {labeled_field("Комментарий", fields.note, "text")}
+                {labeled_field("Название", fields.name, "text", true)}
+                {currency_field(fields.currency, true)}
+                {labeled_field("Начальный остаток", fields.opening, "number", true)}
+                {labeled_field("Кредитный лимит", fields.credit_limit, "number", false)}
+                {note_field(fields.note)}
                 <p class="error">{move || message.get().unwrap_or_default()}</p>
-                <button
-                    type="button"
-                    on:click=move |_| submit(api.clone(), show, fields, message)
-                >
-                    "Ок"
-                </button>
-                <button type="button" on:click=move |_| show.set(false)>"Отмена"</button>
+                <div class="actions">
+                    <button
+                        type="button"
+                        on:click=move |_| submit(api.clone(), show, fields, message)
+                    >
+                        "Ок"
+                    </button>
+                    <button type="button" on:click=move |_| show.set(false)>"Отмена"</button>
+                </div>
             </dialog>
         }
     }
@@ -134,9 +136,11 @@ mod create_account {
         label: &'static str,
         value: RwSignal<String>,
         kind: &'static str,
+        required: bool,
     ) -> impl IntoView {
+        let label_class = if required { "required" } else { "" };
         view! {
-            <label>
+            <label class=label_class>
                 {label}
                 <input
                     type=kind
@@ -147,10 +151,23 @@ mod create_account {
         }
     }
 
-    fn currency_field(currency: RwSignal<String>) -> impl IntoView {
-        let current = currency.get_untracked();
+    fn note_field(value: RwSignal<String>) -> impl IntoView {
         view! {
             <label>
+                "Комментарий"
+                <textarea
+                    prop:value=move || value.get()
+                    on:input=move |event| value.set(event_target_value(&event))
+                />
+            </label>
+        }
+    }
+
+    fn currency_field(currency: RwSignal<String>, required: bool) -> impl IntoView {
+        let current = currency.get_untracked();
+        let label_class = if required { "required" } else { "" };
+        view! {
+            <label class=label_class>
                 "Валюта"
                 <select on:change=move |event| currency.set(event_target_value(&event))>
                     {CURRENCIES
@@ -358,19 +375,21 @@ mod edit_account {
         view! {
             <dialog class="modal" open=true>
                 <h2>"Редактировать счёт"</h2>
-                {labeled_field("Название", fields.name, "text")}
-                {currency_field(fields.currency)}
-                {labeled_field("Начальный остаток", fields.opening, "number")}
-                {labeled_field("Кредитный лимит", fields.credit_limit, "number")}
-                {labeled_field("Комментарий", fields.note, "text")}
+                {labeled_field("Название", fields.name, "text", true)}
+                {currency_field(fields.currency, true)}
+                {labeled_field("Начальный остаток", fields.opening, "number", true)}
+                {labeled_field("Кредитный лимит", fields.credit_limit, "number", false)}
+                {note_field(fields.note)}
                 <p class="error">{move || message.get().unwrap_or_default()}</p>
-                <button
-                    type="button"
-                    on:click=move |_| submit(api.clone(), id, editing, fields, message)
-                >
-                    "Ок"
-                </button>
-                <button type="button" on:click=move |_| editing.set(None)>"Отмена"</button>
+                <div class="actions">
+                    <button
+                        type="button"
+                        on:click=move |_| submit(api.clone(), id, editing, fields, message)
+                    >
+                        "Ок"
+                    </button>
+                    <button type="button" on:click=move |_| editing.set(None)>"Отмена"</button>
+                </div>
             </dialog>
         }
     }
@@ -405,9 +424,11 @@ mod edit_account {
         label: &'static str,
         value: RwSignal<String>,
         kind: &'static str,
+        required: bool,
     ) -> impl IntoView {
+        let label_class = if required { "required" } else { "" };
         view! {
-            <label>
+            <label class=label_class>
                 {label}
                 <input
                     type=kind
@@ -418,11 +439,24 @@ mod edit_account {
         }
     }
 
-    fn currency_field(currency: RwSignal<String>) -> impl IntoView {
-        let current = currency.get_untracked();
-        let current_in_list = CURRENCIES.iter().any(|(code, _)| *code == current);
+    fn note_field(value: RwSignal<String>) -> impl IntoView {
         view! {
             <label>
+                "Комментарий"
+                <textarea
+                    prop:value=move || value.get()
+                    on:input=move |event| value.set(event_target_value(&event))
+                />
+            </label>
+        }
+    }
+
+    fn currency_field(currency: RwSignal<String>, required: bool) -> impl IntoView {
+        let current = currency.get_untracked();
+        let current_in_list = CURRENCIES.iter().any(|(code, _)| *code == current);
+        let label_class = if required { "required" } else { "" };
+        view! {
+            <label class=label_class>
                 "Валюта"
                 <select on:change=move |event| currency.set(event_target_value(&event))>
                     {if !current_in_list {

@@ -324,7 +324,7 @@ fn toggle(editing: RwSignal<Option<AccountId>>, id: AccountId) {
 }
 
 mod edit_account {
-    use domain::UpdateAccount;
+    use domain::{Account, AccountId, UpdateAccount};
 
     use crate::api::AppApi;
     use leptos::prelude::*;
@@ -347,10 +347,58 @@ mod edit_account {
 
     pub(super) fn dialog(
         api: AppApi,
-        id: domain::AccountId,
-        editing: RwSignal<Option<domain::AccountId>>,
+        id: AccountId,
+        editing: RwSignal<Option<AccountId>>,
     ) -> impl IntoView {
-        ().into_any()
+        let account = api
+            .ledger()
+            .with_untracked(|ledger| ledger.account(id).ok().cloned());
+        let fields = fields_from(account.as_ref());
+        let message = RwSignal::new(None::<String>);
+        view! {
+            <dialog class="modal" open=true>
+                <h2>"Редактировать счёт"</h2>
+                {labeled_field("Название", fields.name, "text")}
+                {currency_field(fields.currency)}
+                {labeled_field("Начальный остаток", fields.opening, "number")}
+                {labeled_field("Кредитный лимит", fields.credit_limit, "number")}
+                {labeled_field("Комментарий", fields.note, "text")}
+                <p class="error">{move || message.get().unwrap_or_default()}</p>
+                <button
+                    type="button"
+                    on:click=move |_| submit(api.clone(), id, editing, fields, message)
+                >
+                    "Ок"
+                </button>
+                <button type="button" on:click=move |_| editing.set(None)>"Отмена"</button>
+            </dialog>
+        }
+    }
+
+    fn fields_from(account: Option<&Account>) -> Fields {
+        let (name, currency, opening, credit_limit, note) = match account {
+            Some(account) => (
+                account.name().to_owned(),
+                account.currency().as_str().to_owned(),
+                account.opening_balance().to_string(),
+                account.credit_limit().to_string(),
+                account.note().to_owned(),
+            ),
+            None => (
+                String::new(),
+                CURRENCIES[0].0.to_owned(),
+                "0".to_owned(),
+                String::new(),
+                String::new(),
+            ),
+        };
+        Fields {
+            name: RwSignal::new(name),
+            currency: RwSignal::new(currency),
+            opening: RwSignal::new(opening),
+            credit_limit: RwSignal::new(credit_limit),
+            note: RwSignal::new(note),
+        }
     }
 
     fn labeled_field(
@@ -358,21 +406,57 @@ mod edit_account {
         value: RwSignal<String>,
         kind: &'static str,
     ) -> impl IntoView {
-        ().into_any()
+        view! {
+            <label>
+                {label}
+                <input
+                    type=kind
+                    prop:value=move || value.get()
+                    on:input=move |event| value.set(event_target_value(&event))
+                />
+            </label>
+        }
     }
 
     fn currency_field(currency: RwSignal<String>) -> impl IntoView {
-        ().into_any()
+        let current = currency.get_untracked();
+        view! {
+            <label>
+                "Валюта"
+                <select on:change=move |event| currency.set(event_target_value(&event))>
+                    {CURRENCIES
+                        .iter()
+                        .map(|(code, label)| {
+                            let code = *code;
+                            view! { <option value=code selected={code == current}>{*label}</option> }
+                        })
+                        .collect_view()}
+                </select>
+            </label>
+        }
     }
 
     fn submit(
         api: AppApi,
-        id: domain::AccountId,
-        editing: RwSignal<Option<domain::AccountId>>,
+        id: AccountId,
+        editing: RwSignal<Option<AccountId>>,
         fields: Fields,
         message: RwSignal<Option<String>>,
     ) {
-        todo!()
+        let input = match account_input(
+            &fields.name.get(),
+            &fields.currency.get(),
+            &fields.opening.get(),
+            &fields.credit_limit.get(),
+            &fields.note.get(),
+        ) {
+            Ok(input) => input,
+            Err(error) => {
+                message.set(Some(error.to_owned()));
+                return;
+            }
+        };
+        api.update_account(id, input, message, editing);
     }
 
     fn account_input(
@@ -382,14 +466,102 @@ mod edit_account {
         credit_limit: &str,
         note: &str,
     ) -> Result<UpdateAccount, &'static str> {
-        todo!()
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("Укажите название счёта");
+        }
+        let opening_balance = parse_amount(opening).ok_or("Некорректный остаток")?;
+        let credit_limit = parse_credit_limit(credit_limit)?;
+        Ok(UpdateAccount {
+            name: Some(name.to_owned()),
+            currency: Some(domain::Currency::new(currency)),
+            opening_balance: Some(opening_balance),
+            credit_limit: Some(credit_limit),
+            note: Some(note.to_owned()),
+        })
     }
 
     fn parse_amount(text: &str) -> Option<i64> {
-        todo!()
+        let text = text.trim();
+        if text.is_empty() {
+            return Some(0);
+        }
+        text.parse().ok()
     }
 
     fn parse_credit_limit(text: &str) -> Result<i64, &'static str> {
-        todo!()
+        let limit = parse_amount(text).ok_or("Некорректный кредитный лимит")?;
+        if limit < 0 {
+            return Err("Кредитный лимит не может быть отрицательным");
+        }
+        Ok(limit)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use domain::Currency;
+
+        use super::account_input;
+
+        #[test]
+        fn name_is_trimmed() {
+            let input = account_input("  Наличные  ", "RUB", "0", "0", "").unwrap();
+            assert_eq!(input.name.as_deref(), Some("Наличные"));
+        }
+
+        #[test]
+        fn empty_name_is_rejected() {
+            assert!(account_input("   ", "RUB", "0", "0", "").is_err());
+        }
+
+        #[test]
+        fn negative_opening_balance_is_allowed() {
+            let input = account_input("Карта", "RUB", "-500", "0", "").unwrap();
+            assert_eq!(input.opening_balance, Some(-500));
+        }
+
+        #[test]
+        fn empty_amounts_become_zero() {
+            let input = account_input("Карта", "RUB", "", "", "").unwrap();
+            assert_eq!(input.opening_balance, Some(0));
+            assert_eq!(input.credit_limit, Some(0));
+        }
+
+        #[test]
+        fn broken_opening_balance_is_rejected() {
+            assert!(account_input("Карта", "RUB", "abc", "0", "").is_err());
+        }
+
+        #[test]
+        fn negative_credit_limit_is_rejected() {
+            assert!(account_input("Карта", "RUB", "0", "-1", "").is_err());
+        }
+
+        #[test]
+        fn broken_credit_limit_is_rejected() {
+            assert!(account_input("Карта", "RUB", "0", "abc", "").is_err());
+        }
+
+        #[test]
+        fn currency_is_stored_as_code() {
+            let input = account_input("Карта", "USD", "0", "0", "").unwrap();
+            assert_eq!(input.currency, Some(Currency::new("USD")));
+        }
+
+        #[test]
+        fn note_is_kept() {
+            let input = account_input("Карта", "RUB", "0", "0", "Основная").unwrap();
+            assert_eq!(input.note.as_deref(), Some("Основная"));
+        }
+
+        #[test]
+        fn all_fields_are_some() {
+            let input = account_input("Карта", "RUB", "0", "0", "").unwrap();
+            assert!(input.name.is_some());
+            assert!(input.currency.is_some());
+            assert!(input.opening_balance.is_some());
+            assert!(input.credit_limit.is_some());
+            assert!(input.note.is_some());
+        }
     }
 }

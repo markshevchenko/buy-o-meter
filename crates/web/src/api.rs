@@ -75,6 +75,7 @@ enum Pending {
         id: AccountId,
         input: UpdateAccount,
         message: RwSignal<Option<String>>,
+        editing: RwSignal<Option<AccountId>>,
     },
 }
 
@@ -406,11 +407,13 @@ impl AppApi {
         id: AccountId,
         input: UpdateAccount,
         message: RwSignal<Option<String>>,
+        editing: RwSignal<Option<AccountId>>,
     ) {
         let pending = Pending::UpdateAccount {
             id,
             input: input.clone(),
             message,
+            editing,
         };
         let Some(pending) = self.hold(pending) else {
             return;
@@ -418,7 +421,7 @@ impl AppApi {
         let api = self.clone();
         self.edit(
             move |ledger| ledger.update_account(id, input),
-            move |result| api.settle(result, message, pending, || {}),
+            move |result| api.settle(result, message, pending, move || editing.set(None)),
         );
     }
 
@@ -531,8 +534,13 @@ impl AppApi {
                 message,
                 show,
             } => self.add_account(input, message, show),
-            Pending::UpdateAccount { id, input, message } => {
-                self.update_account(id, input, message);
+            Pending::UpdateAccount {
+                id,
+                input,
+                message,
+                editing,
+            } => {
+                self.update_account(id, input, message, editing);
             }
         }
     }

@@ -88,6 +88,7 @@ pub(crate) struct AppApi {
     tab: RwSignal<Tab>,
     needs_confirm: RwSignal<bool>,
     confirm_error: RwSignal<Option<String>>,
+    sync_error: RwSignal<Option<String>>,
     pending: RwSignal<Option<Pending>>,
 }
 
@@ -106,6 +107,7 @@ impl AppApi {
             tab: RwSignal::new(Tab::Operations),
             needs_confirm: RwSignal::new(false),
             confirm_error: RwSignal::new(None),
+            sync_error: RwSignal::new(None),
             pending: RwSignal::new(None),
         }
     }
@@ -132,6 +134,10 @@ impl AppApi {
 
     pub(crate) fn confirm_error(&self) -> RwSignal<Option<String>> {
         self.confirm_error
+    }
+
+    pub(crate) fn sync_error(&self) -> RwSignal<Option<String>> {
+        self.sync_error
     }
 
     pub(crate) fn open(&self) {
@@ -221,12 +227,15 @@ impl AppApi {
             let result = session.on_return().await;
             let place = session.place();
             let ledger = session.ledger().cloned();
+            let failure = session.sync_failure().map(session_error_text);
             drop(session);
+            api.sync_error.set(failure);
             match result {
                 Ok(_) => api.publish(place, ledger),
                 Err(SessionError::Auth(AuthError::NeedsConfirmation)) => {
                     api.needs_confirm.set(true);
                 }
+                // Причину уже держит sync_error, её показывает баннер устаревших данных.
                 Err(_) => {}
             }
         });
@@ -438,6 +447,7 @@ impl AppApi {
             drop(session);
             if result.is_ok() {
                 api.place.set(place);
+                api.sync_error.set(None);
                 if let Some(ledger) = ledger {
                     api.ledger.set(ledger);
                 }
@@ -552,6 +562,7 @@ impl AppApi {
         self.tab.set(Tab::Operations);
         self.needs_confirm.set(false);
         self.confirm_error.set(None);
+        self.sync_error.set(None);
         self.pending.set(None);
     }
 }

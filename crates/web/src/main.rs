@@ -137,12 +137,14 @@ fn confirm_action(api: AppApi) -> AnyView {
 fn main_screen(api: AppApi) -> impl IntoView {
     let tab = api.tab();
     let banner = api.clone();
+    let stale = api.clone();
     let operations = api.clone();
     let categories = api.clone();
     let accounts = api.clone();
     let about = api.clone();
     view! {
         {confirm_banner(banner)}
+        {sync_banner(stale)}
         {move || match tab.get() {
             Tab::Operations => operations_page(operations.clone()).into_any(),
             Tab::Reports => reports_page().into_any(),
@@ -192,6 +194,25 @@ fn confirm_banner(api: AppApi) -> impl IntoView {
                     <p>"Подтвердите вход через Google."</p>
                     <button type="button" on:click=move |_| api.confirm()>"Подтвердить"</button>
                     <p class="error">{move || error.get().unwrap_or_default()}</p>
+                </section>
+            }
+            .into_any()
+        }}
+    }
+}
+
+fn sync_banner(api: AppApi) -> impl IntoView {
+    let shown = api.clone();
+    view! {
+        {move || {
+            let Some(reason) = shown.sync_error().get() else {
+                return ().into_any();
+            };
+            let api = shown.clone();
+            view! {
+                <section class="banner">
+                    <p class="error">"Данные могли устареть. " {reason}</p>
+                    <button type="button" on:click=move |_| api.on_return()>"Повторить"</button>
                 </section>
             }
             .into_any()

@@ -420,10 +420,16 @@ mod edit_account {
 
     fn currency_field(currency: RwSignal<String>) -> impl IntoView {
         let current = currency.get_untracked();
+        let current_in_list = CURRENCIES.iter().any(|(code, _)| *code == current);
         view! {
             <label>
                 "Валюта"
                 <select on:change=move |event| currency.set(event_target_value(&event))>
+                    {if !current_in_list {
+                        view! { <option value=current.clone() selected=true>{current.clone()}</option> }.into_any()
+                    } else {
+                        ().into_any()
+                    }}
                     {CURRENCIES
                         .iter()
                         .map(|(code, label)| {

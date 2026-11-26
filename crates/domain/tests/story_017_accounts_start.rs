@@ -43,7 +43,7 @@ fn account_with_credit_limit_and_note() {
             note: "Основная карта".into(),
         })
         .unwrap();
-    
+
     let account = ledger.account(id).unwrap();
     assert_eq!(account.credit_limit(), 50_000);
     assert_eq!(account.note(), "Основная карта");

@@ -79,8 +79,8 @@ fn accounts_table_view(
 }
 
 mod create_account {
-    use leptos::prelude::*;
     use crate::api::AppApi;
+    use leptos::prelude::*;
 
     pub(super) fn dialog(api: AppApi, show: RwSignal<bool>) -> impl IntoView {
         view! { <dialog>"Модальное окно создания счёта (заглушка)"</dialog> }

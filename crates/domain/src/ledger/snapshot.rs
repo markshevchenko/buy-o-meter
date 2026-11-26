@@ -180,8 +180,8 @@ mod tests {
                 name: "Карта".into(),
                 currency: Currency::new("RUB"),
                 opening_balance: 5_000,
-            credit_limit: 0,
-            note: String::new(),
+                credit_limit: 0,
+                note: String::new(),
             })
             .expect("счёт");
         let food = ledger

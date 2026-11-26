@@ -53,8 +53,8 @@ fn account_has_no_type_field_type_is_reflected_in_name() -> Result<(), DomainErr
         name: "Вклад".into(),
         currency: Currency::new("RUB"),
         opening_balance: 0,
-            credit_limit: 0,
-            note: String::new(),
+        credit_limit: 0,
+        note: String::new(),
     };
     Ok(())
 }
@@ -121,8 +121,8 @@ fn updating_name_or_opening_balance_persists_and_recalculates_balance() -> Resul
             name: Some("Карта Сбер".into()),
             opening_balance: Some(20_000),
             currency: None,
-                credit_limit: None,
-                note: None,
+            credit_limit: None,
+            note: None,
         },
     )?;
 

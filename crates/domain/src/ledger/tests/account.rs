@@ -17,8 +17,8 @@ fn create_account_assigns_id_and_stores_fields() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 100,
-            credit_limit: 0,
-            note: String::new(),
+        credit_limit: 0,
+        note: String::new(),
     })?;
     let account = ledger.account(id)?;
     assert_eq!(account.opening_balance(), 100);
@@ -33,8 +33,8 @@ fn expense_decreases_balance() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 100,
-            credit_limit: 0,
-            note: String::new(),
+        credit_limit: 0,
+        note: String::new(),
     })?;
     ledger.add_operation(OperationDraft::Expense {
         account_id: id,
@@ -61,8 +61,8 @@ fn currency_change_blocked_when_account_has_operations() -> Result<(), DomainErr
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 0,
-            credit_limit: 0,
-            note: String::new(),
+        credit_limit: 0,
+        note: String::new(),
     })?;
     ledger.add_operation(OperationDraft::Income {
         account_id: id,

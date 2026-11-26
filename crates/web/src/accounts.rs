@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use domain::{Account, AccountId, UpdateAccount};
+use domain::{Account, AccountId};
 
 use crate::api::AppApi;
 
@@ -70,6 +70,8 @@ fn accounts_table_view(
         {move || {
             if show_create.get() {
                 create_account::dialog(api.clone(), show_create).into_any()
+            } else if let Some(id) = editing.get() {
+                edit_account::dialog(api.clone(), id, editing).into_any()
             } else {
                 ().into_any()
             }
@@ -310,13 +312,6 @@ fn account_row(
                 }}
             </td>
         </tr>
-        {move || {
-            if editing.get() == Some(id) {
-                edit_panel(api.clone(), id).into_any()
-            } else {
-                ().into_any()
-            }
-        }}
     }
 }
 
@@ -328,82 +323,73 @@ fn toggle(editing: RwSignal<Option<AccountId>>, id: AccountId) {
     }
 }
 
-fn edit_panel(api: AppApi, id: AccountId) -> impl IntoView {
-    let ledger = api.ledger();
-    let Some((name, opening, currency)) = ledger.with_untracked(|ledger| {
-        ledger.account(id).ok().map(|account| {
-            (
-                account.name().to_owned(),
-                account.opening_balance(),
-                account.currency().as_str().to_owned(),
-            )
-        })
-    }) else {
-        return ().into_any();
-    };
-    let name = RwSignal::new(name);
-    let opening = RwSignal::new(opening.to_string());
-    let currency = RwSignal::new(currency);
-    let message = RwSignal::new(None::<String>);
-    view! {
-        <fieldset>
-            <label>
-                "Название"
-                <input
-                    type="text"
-                    prop:value=move || name.get()
-                    on:input=move |event| name.set(event_target_value(&event))
-                />
-            </label>
-            <label>
-                "Начальный остаток"
-                <input
-                    type="number"
-                    prop:value=move || opening.get()
-                    on:input=move |event| opening.set(event_target_value(&event))
-                />
-            </label>
-            <label>
-                "Валюта"
-                <input
-                    type="text"
-                    prop:value=move || currency.get()
-                    on:input=move |event| currency.set(event_target_value(&event))
-                />
-            </label>
-            <button
-                type="button"
-                on:click=move |_| save_account(api.clone(), id, name, opening, currency, message)
-            >
-                "Сохранить"
-            </button>
-            <p class="error">{move || message.get().unwrap_or_default()}</p>
-        </fieldset>
-    }
-    .into_any()
-}
+mod edit_account {
+    use domain::UpdateAccount;
 
-fn save_account(
-    api: AppApi,
-    id: AccountId,
-    name: RwSignal<String>,
-    opening: RwSignal<String>,
-    currency: RwSignal<String>,
-    message: RwSignal<Option<String>>,
-) {
-    let Ok(opening_balance) = opening.get().trim().parse::<i64>() else {
-        message.set(Some("Некорректный остаток".to_owned()));
-        return;
-    };
-    api.update_account(
-        id,
-        UpdateAccount {
-            name: Some(name.get()),
-            opening_balance: Some(opening_balance),
-            currency: Some(domain::Currency::new(currency.get())),
-            credit_limit: None,
-            note: None,
-        },
-        message,
-    );
+    use crate::api::AppApi;
+    use leptos::prelude::*;
+
+    #[rustfmt::skip]
+    const CURRENCIES: [(&str, &str); 3] = [
+        ("RUB", "Рубль"),
+        ("USD", "Доллар"),
+        ("EUR", "Евро"),
+    ];
+
+    #[derive(Clone, Copy)]
+    struct Fields {
+        name: RwSignal<String>,
+        currency: RwSignal<String>,
+        opening: RwSignal<String>,
+        credit_limit: RwSignal<String>,
+        note: RwSignal<String>,
+    }
+
+    pub(super) fn dialog(
+        api: AppApi,
+        id: domain::AccountId,
+        editing: RwSignal<Option<domain::AccountId>>,
+    ) -> impl IntoView {
+        ().into_any()
+    }
+
+    fn labeled_field(
+        label: &'static str,
+        value: RwSignal<String>,
+        kind: &'static str,
+    ) -> impl IntoView {
+        ().into_any()
+    }
+
+    fn currency_field(currency: RwSignal<String>) -> impl IntoView {
+        ().into_any()
+    }
+
+    fn submit(
+        api: AppApi,
+        id: domain::AccountId,
+        editing: RwSignal<Option<domain::AccountId>>,
+        fields: Fields,
+        message: RwSignal<Option<String>>,
+    ) {
+        todo!()
+    }
+
+    fn account_input(
+        name: &str,
+        currency: &str,
+        opening: &str,
+        credit_limit: &str,
+        note: &str,
+    ) -> Result<UpdateAccount, &'static str> {
+        todo!()
+    }
+
+    fn parse_amount(text: &str) -> Option<i64> {
+        todo!()
+    }
+
+    fn parse_credit_limit(text: &str) -> Result<i64, &'static str> {
+        todo!()
+    }
 }

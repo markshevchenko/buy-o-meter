@@ -67,10 +67,9 @@ enum Pending {
         message: RwSignal<Option<String>>,
     },
     NewAccount {
-        name: String,
-        currency: String,
-        opening: i64,
+        input: CreateAccount,
         message: RwSignal<Option<String>>,
+        show: RwSignal<bool>,
     },
     UpdateAccount {
         id: AccountId,
@@ -147,7 +146,7 @@ impl AppApi {
             let place = session.open().await;
             let ledger = session.ledger().cloned();
             drop(session);
-            api.publish(place, ledger);
+            api.publish(place, ledger, true);
         });
     }
 
@@ -159,7 +158,7 @@ impl AppApi {
             let place = session.place();
             let ledger = session.ledger().cloned();
             drop(session);
-            api.publish(place, ledger);
+            api.publish(place, ledger, true);
         });
     }
 
@@ -169,7 +168,7 @@ impl AppApi {
             let mut session = api.session.lock().await;
             let place = session.sign_out();
             drop(session);
-            api.publish(place, None);
+            api.publish(place, None, false);
         });
     }
 
@@ -231,7 +230,7 @@ impl AppApi {
             drop(session);
             api.sync_error.set(failure);
             match result {
-                Ok(_) => api.publish(place, ledger),
+                Ok(_) => api.publish(place, ledger, false),
                 Err(SessionError::Auth(AuthError::NeedsConfirmation)) => {
                     api.needs_confirm.set(true);
                 }
@@ -383,32 +382,22 @@ impl AppApi {
 
     pub(crate) fn add_account(
         &self,
-        name: String,
-        currency: String,
-        opening: i64,
+        input: CreateAccount,
         message: RwSignal<Option<String>>,
+        show: RwSignal<bool>,
     ) {
         let pending = Pending::NewAccount {
-            name: name.clone(),
-            currency: currency.clone(),
-            opening,
+            input: input.clone(),
             message,
+            show,
         };
         let Some(pending) = self.hold(pending) else {
             return;
         };
         let api = self.clone();
         self.edit(
-            move |ledger| {
-                ledger
-                    .create_account(CreateAccount {
-                        name,
-                        currency: Currency::new(currency),
-                        opening_balance: opening,
-                    })
-                    .map(|_| ())
-            },
-            move |result| api.settle(result, message, pending, || {}),
+            move |ledger| ledger.create_account(input).map(|_| ()),
+            move |result| api.settle(result, message, pending, move || show.set(false)),
         );
     }
 
@@ -538,21 +527,23 @@ impl AppApi {
                 message,
             } => self.delete_category(id, transfer_to, message),
             Pending::NewAccount {
-                name,
-                currency,
-                opening,
+                input,
                 message,
-            } => self.add_account(name, currency, opening, message),
+                show,
+            } => self.add_account(input, message, show),
             Pending::UpdateAccount { id, input, message } => {
                 self.update_account(id, input, message);
             }
         }
     }
 
-    fn publish(&self, place: Place, ledger: Option<Ledger>) {
+    fn publish(&self, place: Place, ledger: Option<Ledger>, is_initial_load: bool) {
         self.place.set(place);
         if place == Place::Main {
             if let Some(ledger) = ledger {
+                if is_initial_load && ledger.accounts().is_empty() {
+                    self.tab.set(Tab::Accounts);
+                }
                 self.ledger.set(ledger);
             }
             return;
@@ -574,7 +565,7 @@ async fn confirm_session(api: &AppApi) -> Result<(), SessionError> {
     let ledger = session.ledger().cloned();
     drop(session);
     result?;
-    api.publish(place, ledger);
+    api.publish(place, ledger, true);
     Ok(())
 }
 
@@ -589,6 +580,8 @@ fn store_account(
         name,
         currency: Currency::new(currency),
         opening_balance: opening,
+        credit_limit: 0,
+        note: String::new(),
     })?;
     if let Ok(mut slot) = created.lock() {
         *slot = Some(id);

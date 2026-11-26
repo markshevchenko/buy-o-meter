@@ -5,5 +5,6 @@ pkgs.mkShell {
         trunk
         gh
         direnv
+        python3
     ];
 }

@@ -68,6 +68,8 @@ fn transfer_targets_with_expenses_omit_income_only_categories() -> Result<(), Do
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 10_000,
+        credit_limit: 0,
+        note: String::new(),
     })?;
     let food = ledger.create_category(CreateCategory {
         name: "Питание".into(),
@@ -180,6 +182,8 @@ fn category_with_subcategories_stays_even_with_a_target() -> Result<(), DomainEr
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 10_000,
+        credit_limit: 0,
+        note: String::new(),
     })?;
     let food = ledger.create_category(CreateCategory {
         name: "Питание".into(),
@@ -225,6 +229,8 @@ fn deleting_moves_expenses_to_the_chosen_category() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 10_000,
+        credit_limit: 0,
+        note: String::new(),
     })?;
     let food = ledger.create_category(CreateCategory {
         name: "Питание".into(),
@@ -278,6 +284,8 @@ fn deleting_expenses_without_a_target_keeps_the_category() -> Result<(), DomainE
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 10_000,
+        credit_limit: 0,
+        note: String::new(),
     })?;
     let food = ledger.create_category(CreateCategory {
         name: "Питание".into(),
@@ -311,6 +319,8 @@ fn unsuitable_transfer_target_keeps_the_category() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 10_000,
+        credit_limit: 0,
+        note: String::new(),
     })?;
     let food = ledger.create_category(CreateCategory {
         name: "Питание".into(),
@@ -358,6 +368,8 @@ fn deleting_incomes_without_a_target_keeps_the_category() -> Result<(), DomainEr
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 10_000,
+        credit_limit: 0,
+        note: String::new(),
     })?;
     let salary = ledger.create_category(CreateCategory {
         name: "Зарплата".into(),
@@ -391,6 +403,8 @@ fn deleting_moves_incomes_to_the_chosen_category() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 10_000,
+        credit_limit: 0,
+        note: String::new(),
     })?;
     let salary = ledger.create_category(CreateCategory {
         name: "Зарплата".into(),

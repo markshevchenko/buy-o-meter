@@ -48,11 +48,13 @@ fn account_has_no_type_field_type_is_reflected_in_name() -> Result<(), DomainErr
 
     let account = ledger.account(id)?;
     assert_eq!(account.name(), "Карта Сбер");
-    // CreateAccount / Account содержат только name, currency, opening_balance — без поля типа.
+    // Типа счёта отдельным полем нет — он отражается в названии.
     let _ = CreateAccount {
         name: "Вклад".into(),
         currency: Currency::new("RUB"),
         opening_balance: 0,
+        credit_limit: 0,
+        note: String::new(),
     };
     Ok(())
 }
@@ -119,6 +121,8 @@ fn updating_name_or_opening_balance_persists_and_recalculates_balance() -> Resul
             name: Some("Карта Сбер".into()),
             opening_balance: Some(20_000),
             currency: None,
+            credit_limit: None,
+            note: None,
         },
     )?;
 
@@ -141,6 +145,8 @@ fn currency_cannot_change_after_operations_but_can_before() -> Result<(), Domain
             name: None,
             opening_balance: None,
             currency: Some(Currency::new("USD")),
+            credit_limit: None,
+            note: None,
         },
     )?;
     assert_eq!(ledger.account(id)?.currency(), &Currency::new("USD"));
@@ -156,6 +162,8 @@ fn currency_cannot_change_after_operations_but_can_before() -> Result<(), Domain
             name: None,
             opening_balance: None,
             currency: Some(Currency::new("RUB")),
+            credit_limit: None,
+            note: None,
         },
     );
     assert_eq!(err, Err(DomainError::CurrencyChangeNotAllowed));

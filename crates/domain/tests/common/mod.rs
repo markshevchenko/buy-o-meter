@@ -16,6 +16,8 @@ pub fn create_account(
         name: name.into(),
         currency: Currency::new(currency),
         opening_balance,
+        credit_limit: 0,
+        note: String::new(),
     })
 }
 

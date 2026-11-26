@@ -367,6 +367,8 @@ mod tests {
                 name: "Наличные".into(),
                 currency: Currency::new("RUB"),
                 opening_balance: 0,
+                credit_limit: 0,
+                note: String::new(),
             })?;
             Ok(())
         }))
@@ -381,6 +383,8 @@ mod tests {
                 name: "Карта".into(),
                 currency: Currency::new("RUB"),
                 opening_balance: 0,
+                credit_limit: 0,
+                note: String::new(),
             })?;
             Ok(())
         }))
@@ -437,6 +441,8 @@ mod tests {
                 name: "Наличные".into(),
                 currency: Currency::new("RUB"),
                 opening_balance: 0,
+                credit_limit: 0,
+                note: String::new(),
             })?;
             Ok(())
         }))

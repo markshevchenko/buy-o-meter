@@ -180,6 +180,8 @@ mod tests {
                 name: "Карта".into(),
                 currency: Currency::new("RUB"),
                 opening_balance: 5_000,
+                credit_limit: 0,
+                note: String::new(),
             })
             .expect("счёт");
         let food = ledger
@@ -252,5 +254,21 @@ mod tests {
             loaded.balance(account).expect("остаток"),
             ledger.balance(account).expect("остаток")
         );
+    }
+
+    #[test]
+    fn old_account_without_credit_limit_and_note_loads_with_defaults() {
+        let old_json = r#"{
+            "id": 1,
+            "name": "Наличные",
+            "currency": "RUB",
+            "opening_balance": 1000
+        }"#;
+        let account: crate::account::Account =
+            serde_json::from_str(old_json).expect("декодирование старого формата");
+        assert_eq!(account.name(), "Наличные");
+        assert_eq!(account.opening_balance(), 1000);
+        assert_eq!(account.credit_limit(), 0);
+        assert_eq!(account.note(), "");
     }
 }

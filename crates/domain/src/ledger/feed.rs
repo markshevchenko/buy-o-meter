@@ -138,6 +138,8 @@ mod tests {
             name: name.into(),
             currency: Currency::new("RUB"),
             opening_balance: 10_000,
+            credit_limit: 0,
+            note: String::new(),
         })
     }
 
@@ -180,6 +182,8 @@ mod tests {
                 name: Some("Кошелёк".into()),
                 opening_balance: None,
                 currency: None,
+                credit_limit: None,
+                note: None,
             },
         )?;
         ledger.update_category(
@@ -299,6 +303,8 @@ mod tests {
             name: "Доллары".into(),
             currency: Currency::new("USD"),
             opening_balance: 50,
+            credit_limit: 0,
+            note: String::new(),
         })?;
         ledger.add_transfer(NewTransfer {
             date: date(2026, 11, 22)?,

@@ -7,6 +7,9 @@ use crate::quick_access::AccountBalance;
 
 impl Ledger {
     pub fn create_account(&mut self, input: CreateAccount) -> Result<AccountId, DomainError> {
+        if input.name.trim().is_empty() {
+            return Err(DomainError::EmptyAccountName);
+        }
         let id = AccountId::from_u64(self.next_account_id);
         self.next_account_id += 1;
         self.accounts.push(Account::new(id, input));

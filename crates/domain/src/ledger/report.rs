@@ -839,6 +839,8 @@ mod tests {
             name: "Наличные".to_owned(),
             currency: Currency::new("RUB"),
             opening_balance: 50_000,
+            credit_limit: 0,
+            note: String::new(),
         })
     }
 

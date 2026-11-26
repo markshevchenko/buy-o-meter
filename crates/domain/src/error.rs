@@ -52,4 +52,5 @@ pub enum DomainError {
     MixedCurrencies,
     InvalidDate,
     SameAccount,
+    EmptyAccountName,
 }

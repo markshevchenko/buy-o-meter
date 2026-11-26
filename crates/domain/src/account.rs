@@ -23,6 +23,10 @@ pub struct Account {
     name: String,
     currency: Currency,
     opening_balance: i64,
+    #[serde(default)]
+    credit_limit: i64,
+    #[serde(default)]
+    note: String,
 }
 
 impl Account {
@@ -32,6 +36,8 @@ impl Account {
             name: input.name,
             currency: input.currency,
             opening_balance: input.opening_balance,
+            credit_limit: input.credit_limit,
+            note: input.note,
         }
     }
 
@@ -55,6 +61,16 @@ impl Account {
         self.opening_balance
     }
 
+    #[must_use]
+    pub fn credit_limit(&self) -> i64 {
+        self.credit_limit
+    }
+
+    #[must_use]
+    pub fn note(&self) -> &str {
+        &self.note
+    }
+
     pub(crate) fn update(&mut self, input: UpdateAccount) {
         if let Some(name) = input.name {
             self.name = name;
@@ -65,6 +81,12 @@ impl Account {
         if let Some(currency) = input.currency {
             self.currency = currency;
         }
+        if let Some(credit_limit) = input.credit_limit {
+            self.credit_limit = credit_limit;
+        }
+        if let Some(note) = input.note {
+            self.note = note;
+        }
     }
 }
 
@@ -73,6 +95,8 @@ pub struct CreateAccount {
     pub name: String,
     pub currency: Currency,
     pub opening_balance: i64,
+    pub credit_limit: i64,
+    pub note: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,4 +104,6 @@ pub struct UpdateAccount {
     pub name: Option<String>,
     pub opening_balance: Option<i64>,
     pub currency: Option<Currency>,
+    pub credit_limit: Option<i64>,
+    pub note: Option<String>,
 }

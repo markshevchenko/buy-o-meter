@@ -15,6 +15,8 @@ fn saved_expense_keeps_date_account_category_amount_and_comment() -> Result<(), 
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 10_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let category_id = ledger.create_category(CreateCategory {
         name: "Продукты".into(),
@@ -90,11 +92,15 @@ fn saved_expense_reduces_only_its_account_balance() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 10_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let usd = ledger.create_account(CreateAccount {
         name: "Доллары".into(),
         currency: Currency::new("USD"),
         opening_balance: 100,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let category_id = ledger.create_category(CreateCategory {
         name: "Продукты".into(),
@@ -126,11 +132,15 @@ fn saved_income_increases_only_its_account_balance() -> Result<(), DomainError> 
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 10_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let usd = ledger.create_account(CreateAccount {
         name: "Доллары".into(),
         currency: Currency::new("USD"),
         opening_balance: 100,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let category_id = ledger.create_category(CreateCategory {
         name: "Зарплата".into(),
@@ -162,6 +172,8 @@ fn expense_on_parent_counts_only_toward_that_category() -> Result<(), DomainErro
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 10_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let food = ledger.create_category(CreateCategory {
         name: "Питание".into(),
@@ -197,6 +209,8 @@ fn income_on_parent_counts_only_toward_that_category() -> Result<(), DomainError
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 10_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let salary = ledger.create_category(CreateCategory {
         name: "Зарплата".into(),
@@ -232,6 +246,8 @@ fn expense_on_earlier_date_appends_to_that_day() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 10_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let category_id = ledger.create_category(CreateCategory {
         name: "Продукты".into(),
@@ -273,6 +289,8 @@ fn income_on_earlier_date_appends_to_that_day() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 10_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let category_id = ledger.create_category(CreateCategory {
         name: "Зарплата".into(),
@@ -314,6 +332,8 @@ fn child_expense_counts_in_the_parent_total() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 0,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let food = ledger.create_category(CreateCategory {
         name: "Питание".into(),
@@ -347,6 +367,8 @@ fn child_income_counts_in_the_parent_total() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 0,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let salary = ledger.create_category(CreateCategory {
         name: "Зарплата".into(),
@@ -380,11 +402,15 @@ fn expense_total_rejects_mixed_currencies() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 0,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let usd = ledger.create_account(CreateAccount {
         name: "Доллары".into(),
         currency: Currency::new("USD"),
         opening_balance: 0,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let food = ledger.create_category(CreateCategory {
         name: "Питание".into(),
@@ -425,11 +451,15 @@ fn income_total_rejects_mixed_currencies() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 0,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let usd = ledger.create_account(CreateAccount {
         name: "Доллары".into(),
         currency: Currency::new("USD"),
         opening_balance: 0,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let salary = ledger.create_category(CreateCategory {
         name: "Зарплата".into(),
@@ -530,6 +560,8 @@ fn saved_income_keeps_date_account_category_amount_and_comment() -> Result<(), D
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 10_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let category_id = ledger.create_category(CreateCategory {
         name: "Зарплата".into(),
@@ -569,6 +601,8 @@ fn ledger_with_cash(
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 10_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let category_id = ledger.create_category(CreateCategory {
         name: category_name.into(),

@@ -173,6 +173,8 @@ fn edits_persist_after_sign_out_and_sign_in_again() -> Result<(), SessionError> 
             UpdateAccount {
                 name: Some("Наличные".into()),
                 currency: None,
+                credit_limit: None,
+                note: None,
                 opening_balance: None,
             },
         )?;

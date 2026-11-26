@@ -12,11 +12,15 @@ fn transfer_within_one_currency_moves_the_amount() -> Result<(), DomainError> {
         name: "Карта".into(),
         currency: Currency::new("RUB"),
         opening_balance: 20_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let cash = ledger.create_account(CreateAccount {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 1_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let day = date(2026, 11, 22)?;
 
@@ -49,11 +53,15 @@ fn transfer_between_currencies_moves_each_amount() -> Result<(), DomainError> {
         name: "Карта".into(),
         currency: Currency::new("RUB"),
         opening_balance: 20_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let dollars = ledger.create_account(CreateAccount {
         name: "Доллары".into(),
         currency: Currency::new("USD"),
         opening_balance: 100,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let day = date(2026, 11, 22)?;
 
@@ -82,16 +90,22 @@ fn transfer_amount_fields_follow_account_currencies() -> Result<(), DomainError>
         name: "Карта".into(),
         currency: Currency::new("RUB"),
         opening_balance: 0,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let cash = ledger.create_account(CreateAccount {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 0,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let dollars = ledger.create_account(CreateAccount {
         name: "Доллары".into(),
         currency: Currency::new("USD"),
         opening_balance: 0,
+            credit_limit: 0,
+            note: String::new(),
     })?;
 
     assert_eq!(
@@ -116,11 +130,15 @@ fn transfer_to_the_same_account_is_rejected() -> Result<(), DomainError> {
         name: "Карта".into(),
         currency: Currency::new("RUB"),
         opening_balance: 20_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let cash = ledger.create_account(CreateAccount {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 1_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let day = date(2026, 11, 22)?;
     ledger.add_transfer(NewTransfer {
@@ -155,11 +173,15 @@ fn card_and_cash() -> Result<(Ledger, AccountId, AccountId), DomainError> {
         name: "Карта".into(),
         currency: Currency::new("RUB"),
         opening_balance: 20_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let cash = ledger.create_account(CreateAccount {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 1_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     Ok((ledger, card, cash))
 }
@@ -225,11 +247,15 @@ fn transfer_between_currencies_without_credited_amount_is_rejected() -> Result<(
         name: "Карта".into(),
         currency: Currency::new("RUB"),
         opening_balance: 20_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let dollars = ledger.create_account(CreateAccount {
         name: "Доллары".into(),
         currency: Currency::new("USD"),
         opening_balance: 100,
+            credit_limit: 0,
+            note: String::new(),
     })?;
 
     let err = ledger.add_transfer(transfer_input(
@@ -301,11 +327,15 @@ fn transfer_on_earlier_date_appends_to_that_day() -> Result<(), DomainError> {
         name: "Карта".into(),
         currency: Currency::new("RUB"),
         opening_balance: 20_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let cash = ledger.create_account(CreateAccount {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 1_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let yesterday = date(2026, 11, 21)?;
     let today = add_days(yesterday, 1)?;

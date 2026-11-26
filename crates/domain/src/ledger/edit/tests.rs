@@ -12,6 +12,8 @@ fn rub_account(ledger: &mut Ledger, opening_balance: i64) -> Result<crate::Accou
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance,
+        credit_limit: 0,
+        note: String::new(),
     })
 }
 

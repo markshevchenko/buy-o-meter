@@ -405,6 +405,8 @@ impl AppApi {
                         name,
                         currency: Currency::new(currency),
                         opening_balance: opening,
+                        credit_limit: 0,
+                        note: String::new(),
                     })
                     .map(|_| ())
             },
@@ -592,6 +594,8 @@ fn store_account(
         name,
         currency: Currency::new(currency),
         opening_balance: opening,
+        credit_limit: 0,
+        note: String::new(),
     })?;
     if let Ok(mut slot) = created.lock() {
         *slot = Some(id);

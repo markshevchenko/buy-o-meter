@@ -12,6 +12,8 @@ fn saving_lend_adds_new_counterparty() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 20_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
 
     assert!(ledger.counterparties().is_empty());
@@ -35,6 +37,8 @@ fn lend_keeps_counterparty_name_after_list_grows() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 20_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
 
     ledger.add_lend(NewLend {
@@ -62,6 +66,8 @@ fn counterparty_with_lend_cannot_be_renamed_or_deleted() -> Result<(), DomainErr
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 20_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     ledger.add_lend(NewLend {
         date: date(2026, 11, 22)?,
@@ -93,6 +99,8 @@ fn lending_reduces_account_balance() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 20_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     ledger.add_lend(NewLend {
         date: date(2026, 11, 22)?,
@@ -111,6 +119,8 @@ fn lending_adds_debt_to_me_in_account_currency() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 20_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     ledger.add_lend(NewLend {
         date: date(2026, 11, 22)?,
@@ -135,6 +145,8 @@ fn second_lend_to_same_name_keeps_one_counterparty() -> Result<(), DomainError> 
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 50_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     ledger.add_lend(NewLend {
         date: date(2026, 11, 22)?,
@@ -161,6 +173,8 @@ fn borrowing_increases_account_balance_and_my_debt() -> Result<(), DomainError> 
         name: "Карта".into(),
         currency: Currency::new("RUB"),
         opening_balance: 1_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     ledger.add_borrow(NewBorrow {
         date: date(2026, 11, 22)?,
@@ -186,6 +200,8 @@ fn counterparty_with_borrow_cannot_be_renamed_or_deleted() -> Result<(), DomainE
         name: "Карта".into(),
         currency: Currency::new("RUB"),
         opening_balance: 1_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     ledger.add_borrow(NewBorrow {
         date: date(2026, 11, 22)?,
@@ -217,6 +233,8 @@ fn received_repayment_reduces_debt_to_me_and_increases_balance() -> Result<(), D
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 20_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     ledger.add_lend(NewLend {
         date: date(2026, 11, 22)?,
@@ -256,6 +274,8 @@ fn given_repayment_reduces_my_debt_and_leaves_debt_to_me() -> Result<(), DomainE
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 50_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let day = date(2026, 11, 22)?;
     ledger.add_lend(NewLend {
@@ -313,6 +333,8 @@ fn repayment_above_remaining_is_rejected() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 20_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let day = date(2026, 11, 22)?;
     ledger.add_lend(NewLend {
@@ -346,6 +368,8 @@ fn given_repayment_without_my_debt_is_rejected() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 20_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let day = date(2026, 11, 22)?;
     ledger.add_lend(NewLend {
@@ -380,11 +404,15 @@ fn repayment_in_another_currency_is_no_debt() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 100_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let dollars = ledger.create_account(CreateAccount {
         name: "Доллары".into(),
         currency: Currency::new("USD"),
         opening_balance: 1_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let day = date(2026, 11, 22)?;
     ledger.add_lend(NewLend {
@@ -422,6 +450,8 @@ fn repaid_counterparty_can_be_renamed_and_deleted() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 20_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let day = date(2026, 11, 22)?;
     ledger.add_lend(NewLend {
@@ -459,6 +489,8 @@ fn repayment_on_earlier_date_appends_to_that_day() -> Result<(), DomainError> {
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 20_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let yesterday = date(2026, 11, 21)?;
     let today = add_days(yesterday, 1)?;
@@ -498,11 +530,15 @@ fn quick_access_lists_accounts_in_creation_order_with_their_balances() -> Result
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 20_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let dollars = ledger.create_account(CreateAccount {
         name: "Доллары".into(),
         currency: Currency::new("USD"),
         opening_balance: 1_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     ledger.add_operation(OperationDraft::Expense {
         account_id: cash,
@@ -530,6 +566,8 @@ fn quick_access_my_debts_matches_ledger_my_debts() -> Result<(), DomainError> {
         name: "Карта".into(),
         currency: Currency::new("RUB"),
         opening_balance: 1_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let day = date(2026, 11, 22)?;
     ledger.add_borrow(NewBorrow {
@@ -552,11 +590,15 @@ fn quick_access_debts_to_me_matches_ledger_debts_to_me() -> Result<(), DomainErr
         name: "Наличные".into(),
         currency: Currency::new("RUB"),
         opening_balance: 100_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let dollars = ledger.create_account(CreateAccount {
         name: "Доллары".into(),
         currency: Currency::new("USD"),
         opening_balance: 1_000,
+            credit_limit: 0,
+            note: String::new(),
     })?;
     let day = date(2026, 11, 22)?;
     ledger.add_lend(NewLend {

@@ -201,6 +201,8 @@ fn save_account(
             name: Some(name.get()),
             opening_balance: Some(opening_balance),
             currency: Some(domain::Currency::new(currency.get())),
+            credit_limit: None,
+            note: None,
         },
         message,
     );

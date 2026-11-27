@@ -415,14 +415,25 @@ impl AppApi {
             message,
             editing,
         };
-        let Some(pending) = self.hold(pending) else {
+        let Some(_pending) = self.hold(pending) else {
             return;
         };
+        self.ledger.update(|ledger| {
+            let _ = ledger.update_account(id, input.clone());
+        });
+        editing.set(None);
         let api = self.clone();
         self.edit(
             move |ledger| ledger.update_account(id, input),
-            move |result| api.settle(result, message, pending, move || editing.set(None)),
+            move |result| api.settle_in_background(result),
         );
+    }
+
+    /// Окно уже закрыто (сохранение оптимистичное), поэтому ошибку показывает баннер синхронизации.
+    fn settle_in_background(&self, result: Result<Place, SessionError>) {
+        if let Err(error) = result {
+            self.sync_error.set(Some(session_error_text(&error)));
+        }
     }
 
     fn edit(
@@ -435,14 +446,15 @@ impl AppApi {
             let mut session = api.session.lock().await;
             let result = session.change(edit).await;
             let place = session.place();
-            let ledger = result.as_ref().ok().and_then(|_| session.ledger().cloned());
+            let ledger = session.ledger().cloned();
             drop(session);
             if result.is_ok() {
                 api.place.set(place);
                 api.sync_error.set(None);
-                if let Some(ledger) = ledger {
-                    api.ledger.set(ledger);
-                }
+            }
+            // На ошибке это откатывает оптимистично применённую правку к состоянию сессии.
+            if let Some(ledger) = ledger {
+                api.ledger.set(ledger);
             }
             done(result);
         });

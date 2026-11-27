@@ -111,7 +111,15 @@ mod create_account {
         };
         let message = RwSignal::new(None::<String>);
         view! {
-            <dialog class="modal" open=true>
+            <dialog
+                class="modal"
+                open=true
+                on:keydown=move |event: web_sys::KeyboardEvent| {
+                    if event.key() == "Escape" {
+                        show.set(false);
+                    }
+                }
+            >
                 <h2>"Новый счёт"</h2>
                 {labeled_field("Название", fields.name, "text", true)}
                 {currency_field(fields.currency, true)}
@@ -317,16 +325,12 @@ fn account_row(
     let name = account.name().to_owned();
     let currency = account.currency().as_str().to_owned();
     view! {
-        <tr>
-            <td>
-                <button type="button" class="line" on:click=move |_| toggle(editing, id)>
-                    {name.clone()}
-                </button>
-            </td>
-            <td>
+        <tr class="row" on:click=move |_| toggle(editing, id)>
+            <td class="name">{name.clone()}</td>
+            <td class="balance">
                 {move || {
                     let balance = ledger.with(|ledger| ledger.balance(id).unwrap_or(0));
-                    format!("{balance} {currency}")
+                    format!("{} {currency}", edit_account::format_amount(balance))
                 }}
             </td>
         </tr>
@@ -374,7 +378,15 @@ mod edit_account {
         let fields = fields_from(account.as_ref());
         let message = RwSignal::new(None::<String>);
         view! {
-            <dialog class="modal" open=true>
+            <dialog
+                class="modal"
+                open=true
+                on:keydown=move |event: web_sys::KeyboardEvent| {
+                    if event.key() == "Escape" {
+                        editing.set(None);
+                    }
+                }
+            >
                 <h2>"Редактировать счёт"</h2>
                 {labeled_field("Название", fields.name, "text", true)}
                 {currency_field(fields.currency, true)}
@@ -401,7 +413,11 @@ mod edit_account {
                 account.name().to_owned(),
                 account.currency().as_str().to_owned(),
                 format_amount(account.opening_balance()),
-                format_amount(account.credit_limit()),
+                if account.credit_limit() == 0 {
+                    String::new()
+                } else {
+                    format_amount(account.credit_limit())
+                },
                 account.note().to_owned(),
             ),
             None => (
@@ -421,17 +437,12 @@ mod edit_account {
         }
     }
 
-    fn format_amount(kopecks: i64) -> String {
-        if kopecks == 0 {
-            return "0".to_owned();
-        }
+    pub(super) fn format_amount(kopecks: i64) -> String {
+        let sign = if kopecks < 0 { "-" } else { "" };
+        let kopecks = kopecks.unsigned_abs();
         let rubles = kopecks / 100;
-        let kopecks = (kopecks % 100).abs();
-        if kopecks == 0 {
-            format!("{rubles}")
-        } else {
-            format!("{rubles}.{kopecks:02}")
-        }
+        let kopecks = kopecks % 100;
+        format!("{sign}{rubles}.{kopecks:02}")
     }
 
     fn labeled_field(

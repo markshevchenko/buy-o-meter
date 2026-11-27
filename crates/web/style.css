@@ -161,6 +161,39 @@ form button {
   text-align: left;
 }
 
+.accounts {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.4rem;
+}
+
+.accounts th {
+  padding: 0.4rem 0.2rem;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.accounts td {
+  padding: 0.6rem 0.2rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.accounts th:last-child,
+.accounts td.balance {
+  text-align: right;
+}
+
+.accounts tr.row {
+  cursor: pointer;
+}
+
+.accounts tr.row:hover {
+  background: var(--color-bg);
+}
+
 .tree {
   margin-top: 0.5rem;
 }

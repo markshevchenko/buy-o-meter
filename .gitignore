@@ -27,3 +27,6 @@ rustc-ice-*.txt
 #.idea/
 
 .envrc
+
+# Claude Code local settings (permissions accumulate per-session, model choice is personal)
+.claude/settings.json

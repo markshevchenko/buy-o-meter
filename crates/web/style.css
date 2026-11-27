@@ -161,6 +161,39 @@ form button {
   text-align: left;
 }
 
+.accounts {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.4rem;
+}
+
+.accounts th {
+  padding: 0.4rem 0.2rem;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.accounts td {
+  padding: 0.6rem 0.2rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.accounts th:last-child,
+.accounts td.balance {
+  text-align: right;
+}
+
+.accounts tr.row {
+  cursor: pointer;
+}
+
+.accounts tr.row:hover {
+  background: var(--color-bg);
+}
+
 .tree {
   margin-top: 0.5rem;
 }
@@ -241,4 +274,71 @@ select {
   min-height: 1.2em;
   margin: 0;
   color: var(--color-danger);
+}
+
+.modal {
+  width: calc(100% - 2rem);
+  max-width: 32rem;
+  padding: 1.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+}
+
+.modal h2 {
+  margin-bottom: 1rem;
+}
+
+.modal label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.modal label .label-text {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.modal .required .label-text::after {
+  content: "*";
+  color: var(--color-accent);
+}
+
+.modal input,
+.modal select {
+  min-height: 2.75rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.modal textarea {
+  min-height: 5.5rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  resize: vertical;
+}
+
+.modal .actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.modal .actions button {
+  flex: 1;
+  max-width: 10rem;
 }

@@ -115,11 +115,7 @@ fn revision(version: &VersionField) -> Result<Revision, DriveError> {
 }
 
 async fn download_all(token: &str, files: &[RemoteFile]) -> Result<Vec<DriveFile>, DriveError> {
-    let mut loaded = Vec::new();
-    for file in files {
-        loaded.push(download(token, file).await?);
-    }
-    Ok(loaded)
+    futures::future::try_join_all(files.iter().map(|file| download(token, file))).await
 }
 
 fn data_files(remote: &[RemoteFile]) -> Vec<RemoteFile> {
